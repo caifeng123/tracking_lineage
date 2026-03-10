@@ -61,22 +61,80 @@ function findCalls(funcDecl: Node): FunctionCall[] {
   const seen = new Set<string>();
   for (const ce of funcDecl.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expr = ce.getExpression();
-    if (expr.getKind() !== SyntaxKind.Identifier) continue;
-    const name = expr.getText();
-    const defs = (expr as any).getDefinitions?.();
+    const kind = expr.getKind();
+
+    // 支持 foo() / obj.method() / this.method() / a.b.c()
+    let name: string;
+    let resolveNode: Node;
+    if (kind === SyntaxKind.Identifier) {
+      name = expr.getText();
+      resolveNode = expr;
+    } else if (kind === SyntaxKind.PropertyAccessExpression) {
+      const nameNode = (expr as any).getNameNode?.();
+      if (!nameNode) continue;
+      name = nameNode.getText();
+      resolveNode = nameNode;
+    } else {
+      continue;
+    }
+
+    // 尝试获取定义
+    const defs = (resolveNode as any).getDefinitions?.();
     if (!defs || defs.length === 0) continue;
     const def = defs[0];
     const dfp = def.getSourceFile().getFilePath();
     if (dfp.includes('node_modules') || dfp.includes('typescript/lib') || dfp.endsWith('.d.ts')) continue;
-    const tf = def.getSourceFile().getFunctions().find((f: any) => f.getName() === name);
-    const dsl = tf ? tf.getStartLineNumber() : def.getNode().getStartLineNumber();
-    const del = tf ? tf.getEndLineNumber() : def.getNode().getEndLineNumber();
-    const key = `${name}:${dfp}:${dsl}`;
+
+    const defNode = def.getNode();
+    const defLine = defNode.getStartLineNumber();
+
+    // 关键：用 findFunctionByLine 相同的逻辑定位函数节点
+    // 这样 startLine 和后续 analyzeFunction 调用时一定能匹配上
+    const targetFunc = findFuncNodeNear(def.getSourceFile(), defLine);
+    if (!targetFunc) continue;
+
+    const startLine = targetFunc.getStartLineNumber();
+    const endLine = targetFunc.getEndLineNumber();
+
+    const key = `${name}:${dfp}:${startLine}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    calls.push({ functionName: name, absolutePath: dfp, startLine: dsl, endLine: del });
+    calls.push({ functionName: name, absolutePath: dfp, startLine, endLine });
   }
   return calls;
+}
+
+/**
+ * 从定义行号附近查找包含该行的函数节点。
+ * 与 findFunctionByLine 使用完全相同的 SyntaxKind 列表，
+ * 确保返回的 startLine 和 analyzeFunction 能精确匹配。
+ */
+function findFuncNodeNear(sf: SourceFile, line: number): Node | null {
+  const kinds = [
+    SyntaxKind.FunctionDeclaration, SyntaxKind.FunctionExpression,
+    SyntaxKind.ArrowFunction, SyntaxKind.MethodDeclaration,
+    SyntaxKind.MethodSignature, SyntaxKind.PropertyAssignment,
+  ];
+  // 精确匹配：函数起始行 === 定义行
+  for (const k of kinds) {
+    for (const n of sf.getDescendantsOfKind(k)) {
+      if (n.getStartLineNumber() === line) return n;
+    }
+  }
+  // 包含匹配：定义行在函数范围内（取最内层）
+  let best: Node | null = null;
+  for (const k of kinds) {
+    for (const n of sf.getDescendantsOfKind(k)) {
+      const s = n.getStartLineNumber();
+      const e = n.getEndLineNumber();
+      if (s <= line && line <= e) {
+        if (!best || (n.getEnd() - n.getStart()) < (best.getEnd() - best.getStart())) {
+          best = n;
+        }
+      }
+    }
+  }
+  return best;
 }
 
 function isInsideImport(node: Node): boolean {

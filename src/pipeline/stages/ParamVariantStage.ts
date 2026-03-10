@@ -28,7 +28,12 @@ export class ParamVariantStage {
   async run(rawParams: string[]): Promise<ParamVariantResult> {
     console.log('[Stage2] 获取字段变种...');
     const startTime = Date.now();
-
+    const allCached = rawParams.every((p) =>
+      this.store.exists(`2-aiParamVariant/${p}.json`),
+    );
+    if (allCached) {
+      console.log('[Stage2] 所有字段变种已存在，跳过');
+    }
     const results = await Promise.all(rawParams.map((p) => this.discoverVariants(p)));
 
     const pairs: ParamVariantPair[] = [];
@@ -44,7 +49,40 @@ export class ParamVariantStage {
 
   private async discoverVariants(rawParam: string): Promise<SingleParamVariantResult> {
     const startTime = Date.now();
+    // 如果缓存已存在，跳过 AI 调用，直接用缓存变种做 grep 验证
+    if (this.store.exists(`2-aiParamVariant/${rawParam}.json`)) {
+      const cachedVariants = this.parseSafe<string[]>(
+        this.store.load(`2-aiParamVariant/${rawParam}.json`),
+        [],
+      );
 
+      const matchSet = new Set<string>();
+      for (const variant of cachedVariants) {
+        try {
+          const grepResults = this.grep.searchRepo(variant);
+          for (const fr of grepResults) {
+            for (const m of fr.matches) {
+              matchSet.add(m.match);
+            }
+          }
+        } catch (err) {
+          console.warn(`[Stage2] 正则搜索失败 "${variant}":`, err);
+        }
+      }
+
+      const durationSec = (Date.now() - startTime) / 1000;
+      console.log(`  [Stage2] ${rawParam} 变种已存在，跳过 AI 调用, 缓存变种=${cachedVariants.length} 验证匹配=${matchSet.size} (${durationSec.toFixed(1)}s)`);
+
+      return {
+        rawParam,
+        aiSearch: cachedVariants,
+        regexSearch: [],
+        matches: [...matchSet],
+        durationSec,
+      };
+    }
+
+    // 正常路径：调用 agent  LLM
     const [, regexResponse] = await Promise.all([
       this.agent.run(
         buildParamVariantUserPrompt(rawParam),
