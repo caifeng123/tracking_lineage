@@ -28,6 +28,7 @@ export interface DirNode {
   path: string;
   type: 'file' | 'directory';
   involved: boolean;
+  lazy?: boolean;
   children?: DirNode[];
 }
 

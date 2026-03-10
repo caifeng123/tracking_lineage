@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { Tree, Typography, Empty } from 'antd';
-import { FolderOutlined, FileTextOutlined } from '@ant-design/icons';
+import { FolderOutlined, FolderOpenOutlined, FileTextOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { DirNode } from '../../types';
-import type { DataNode } from 'antd/es/tree';
+import type { DataNode, EventDataNode } from 'antd/es/tree';
+import { fetchDirChildren } from '../../services/api';
 
 const { Text } = Typography;
 
@@ -14,6 +15,7 @@ interface FileTreeProps {
 
 function toDataNodes(node: DirNode): DataNode {
   const isDir = node.type === 'directory';
+  const isLazy = isDir && node.lazy;
 
   const title = (
     <Text
@@ -33,17 +35,38 @@ function toDataNodes(node: DirNode): DataNode {
     title,
     icon: isDir ? <FolderOutlined /> : <FileTextOutlined />,
     isLeaf: !isDir,
-    children: isDir && node.children ? node.children.map(toDataNodes) : undefined,
+    children: isDir && !isLazy && node.children
+      ? node.children.map(toDataNodes)
+      : undefined,
     selectable: !isDir,
   };
 }
 
 export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps) {
+  const [lazyLoaded, setLazyLoaded] = useState<Record<string, DataNode[]>>({});
+
   const treeData = useMemo(() => {
     if (!tree) return [];
-    if (tree.children && tree.children.length > 0) return tree.children.map(toDataNodes);
-    return [toDataNodes(tree)];
-  }, [tree]);
+    const nodes = tree.children && tree.children.length > 0
+      ? tree.children.map(toDataNodes)
+      : [toDataNodes(tree)];
+
+    // 将已懒加载的子项注入
+    function injectLazy(list: DataNode[]): DataNode[] {
+      return list.map((node) => {
+        const key = node.key as string;
+        if (lazyLoaded[key]) {
+          return { ...node, children: injectLazy(lazyLoaded[key]), isLeaf: false };
+        }
+        if (node.children) {
+          return { ...node, children: injectLazy(node.children) };
+        }
+        return node;
+      });
+    }
+
+    return injectLazy(nodes);
+  }, [tree, lazyLoaded]);
 
   const defaultExpandedKeys = useMemo(() => {
     const keys: string[] = [];
@@ -55,6 +78,38 @@ export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps
     return keys;
   }, [tree]);
 
+  const onLoadData = useCallback(async (node: EventDataNode<DataNode>) => {
+    const key = node.key as string;
+    // 如果已加载过或已有 children 则跳过
+    if (lazyLoaded[key] || (node.children && node.children.length > 0)) return;
+
+    try {
+      const res = await fetchDirChildren(key);
+      const childNodes = res.children.map((child): DataNode => {
+        const isDir = child.type === 'directory';
+        const title = (
+          <Text
+            style={{ fontSize: 12 }}
+            ellipsis={{ tooltip: child.path || child.name }}
+          >
+            {child.name}
+          </Text>
+        );
+        return {
+          key: child.path || child.name,
+          title,
+          icon: isDir ? <FolderOutlined /> : <FileTextOutlined />,
+          isLeaf: !isDir,
+          selectable: !isDir,
+        };
+      });
+      setLazyLoaded((prev) => ({ ...prev, [key]: childNodes }));
+    } catch {
+      // 加载失败，设空数组避免重复请求
+      setLazyLoaded((prev) => ({ ...prev, [key]: [] }));
+    }
+  }, [lazyLoaded]);
+
   if (!tree) return <Empty description="暂无文件树" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
 
   return (
@@ -62,6 +117,7 @@ export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps
       treeData={treeData}
       defaultExpandedKeys={defaultExpandedKeys}
       selectedKeys={selectedFile ? [selectedFile] : []}
+      loadData={onLoadData}
       showIcon
       blockNode
       style={{ background: 'transparent', fontSize: 12 }}

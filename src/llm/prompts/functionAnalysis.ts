@@ -14,9 +14,11 @@ ${input.param}
 2. 向下：子函数 [${callNames}] 中与参数相关的调用
 
 ## 输出（严格 JSON）
-{"calls":[{"name":"p","index":0,"reason":"...","use":true}]],"reference_params":[{"name":"inputParam","index":0,"reason":"...","use":true}]}
+{"calls":[{"function_name":"childFunc","params":[{"name":"p","index":0,"reason":"...","use":true}]}],"reference_params":[{"name":"inputParam","index":0,"reason":"...","use":true}]}
 
 ## 规则
+- calls 数组每个元素必须包含 function_name（子函数名）和 params（传递的参数列表）
+- function_name 必须是上面列出的子函数之一
 - 只列确实相关的项，忽略 JS 原生函数
 - use 需严格校验参数位置一致性`;
 }
@@ -32,8 +34,10 @@ ${input.param}
 子函数: [${callNames}]
 
 ## 输出（严格 JSON）
-{"calls":[{"name":"p","index":0,"reason":"...","use":true}]]}
+{"calls":[{"function_name":"childFunc","params":[{"name":"p","index":0,"reason":"...","use":true}]}]}
 
 ## 规则
+- calls 数组每个元素必须包含 function_name（子函数名）和 params（传递的参数列表）
+- function_name 必须是上面列出的子函数之一
 - 只列相关调用，忽略原生函数，严格校验 use`;
 }

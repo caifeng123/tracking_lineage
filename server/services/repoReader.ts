@@ -24,11 +24,9 @@ export class RepoReader {
    */
   resolvePath(analysisAbsPath: string): string {
     if (this.targetDir === this.analysisDir) return analysisAbsPath;
-    // 前缀替换
     if (analysisAbsPath.startsWith(this.analysisDir)) {
       return analysisAbsPath.replace(this.analysisDir, this.targetDir);
     }
-    // 如果是相对路径，直接 join
     return join(this.targetDir, analysisAbsPath);
   }
 
@@ -59,12 +57,12 @@ export class RepoReader {
   }
 
   /**
-   * 构建目录树（只展开包含 involved 文件的目录）
+   * 构建目录树（完整扫描所有文件，标记 involved）
    */
   buildFileTree(involvedFiles: string[]): DirNode {
     const involvedSet = new Set(involvedFiles.map((f) => f.replace(/\\/g, '/')));
 
-    // 收集需要展开的目录
+    // 收集需要标记为 involved 的目录
     const involvedDirs = new Set<string>();
     for (const file of involvedSet) {
       const parts = file.split('/');
@@ -76,6 +74,53 @@ export class RepoReader {
     }
 
     return this.buildDirNode('', '', involvedSet, involvedDirs);
+  }
+
+  /**
+   * 列出指定相对路径目录下的子项（懒加载用）
+   */
+  listDir(relPath: string): DirNode[] {
+    const absPath = relPath
+      ? this.safePath(relPath)
+      : this.targetDir;
+    if (!absPath || !existsSync(absPath)) return [];
+
+    let entries: string[];
+    try {
+      entries = readdirSync(absPath);
+    } catch {
+      return [];
+    }
+
+    entries = entries
+      .filter((e) => !e.startsWith('.') && e !== 'node_modules' && e !== 'dist')
+      .sort();
+
+    const result: DirNode[] = [];
+    for (const entry of entries) {
+      const childRel = relPath ? `${relPath}/${entry}` : entry;
+      const childAbs = join(absPath, entry);
+      let stat;
+      try { stat = statSync(childAbs); } catch { continue; }
+
+      if (stat.isDirectory()) {
+        result.push({
+          name: entry,
+          path: childRel,
+          type: 'directory',
+          involved: false,
+          children: [],
+        });
+      } else if (stat.isFile()) {
+        result.push({
+          name: entry,
+          path: childRel,
+          type: 'file',
+          involved: false,
+        });
+      }
+    }
+    return result;
   }
 
   private buildDirNode(
@@ -103,7 +148,6 @@ export class RepoReader {
       return node;
     }
 
-    // 过滤隐藏文件和 node_modules
     entries = entries
       .filter((e) => !e.startsWith('.') && e !== 'node_modules' && e !== 'dist')
       .sort();
@@ -120,17 +164,20 @@ export class RepoReader {
       }
 
       if (stat.isDirectory()) {
-        // 只展开包含 involved 文件的目录
-        if (involvedDirs.has(childRel.replace(/\\/g, '/'))) {
+        const isInvolved = involvedDirs.has(childRel.replace(/\\/g, '/'));
+        if (isInvolved) {
+          // involved 目录：递归展开子内容
           const dirNode = this.buildDirNode(entry, childRel, involvedFiles, involvedDirs);
           dirNode.involved = true;
           node.children!.push(dirNode);
         } else {
+          // 非 involved 目录：标记为 lazy，前端按需加载
           node.children!.push({
             name: entry,
             path: childRel,
             type: 'directory',
             involved: false,
+            lazy: true,
           });
         }
       } else if (stat.isFile()) {
@@ -162,5 +209,6 @@ export interface DirNode {
   path: string;
   type: 'file' | 'directory';
   involved: boolean;
+  lazy?: boolean;
   children?: DirNode[];
 }

@@ -38,5 +38,15 @@ export function createFileRoutes(repoReader: RepoReader): Hono {
     return c.json({ tree });
   });
 
+  /**
+   * GET /api/files/list?dir=src/utils
+   * 懒加载：列出指定目录下的子项
+   */
+  app.get('/list', (c) => {
+    const dir = c.req.query('dir') ?? '';
+    const children = repoReader.listDir(dir);
+    return c.json({ children });
+  });
+
   return app;
 }

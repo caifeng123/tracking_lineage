@@ -33,6 +33,10 @@ export function fetchFileTree(involvedFiles: string[]): Promise<{ tree: DirNode 
   return request('/files/tree?involved=' + involvedFiles.map(encodeURIComponent).join(','));
 }
 
+export function fetchDirChildren(dir: string): Promise<{ children: DirNode[] }> {
+  return request('/files/list?dir=' + encodeURIComponent(dir));
+}
+
 export function fetchMetadata(): Promise<MetadataResponse> {
   return request('/metadata');
 }
