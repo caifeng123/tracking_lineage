@@ -22,7 +22,7 @@ export function fetchRoots(): Promise<{ roots: RootItem[] }> {
 }
 
 export function fetchTreeDetail(rawParam: string, rootId: string): Promise<TreeDetailResponse> {
-  return request('/trees/' + encodeURIComponent(rawParam) + '/' + rootId);
+  return request('/trees/' + encodeURIComponent(rawParam) + '?rootId=' + encodeURIComponent(rootId));
 }
 
 export function fetchFileContent(filePath: string): Promise<FileContent> {

@@ -49,7 +49,7 @@ export function createTreeRoutes(
         const stats = getTreeStats(tree);
         roots.push({
           rawParam,
-          rootId: encodeURIComponent(tree.id),
+          rootId: tree.id,
           rootPath: tree.id,
           rootFunctionName: tree.functionName,
           depth: stats.depth,
@@ -65,9 +65,9 @@ export function createTreeRoutes(
   /**
    * GET /api/trees/:rawParam/:rootId — 单棵树详情
    */
-  app.get('/:rawParam/:rootId', (c) => {
+  app.get('/:rawParam', (c) => {
     const rawParam = c.req.param('rawParam');
-    const rootId = decodeURIComponent(c.req.param('rootId'));
+    const rootId = c.req.query('rootId') ?? '';
 
     // 构建结构化树
     const records = resultReader.readDependencyRecords(rawParam);

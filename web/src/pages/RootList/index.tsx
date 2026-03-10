@@ -109,7 +109,7 @@ export default function RootList() {
                     <Card
                       hoverable
                       size="small"
-                      onClick={() => navigate('/tree/' + encodeURIComponent(item.rawParam) + '/' + item.rootId)}
+                      onClick={() => navigate('/tree/' + encodeURIComponent(item.rawParam) + '?rootId=' + encodeURIComponent(item.rootId))}
                       style={{ background: '#1f1f1f', borderColor: '#303030', height: '100%' }}
                       styles={{ body: { padding: '16px' } }}
                     >

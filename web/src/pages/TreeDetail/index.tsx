@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout, Typography, Spin, Alert, Button, Splitter, theme } from 'antd';
 import { ArrowLeftOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useTreeDetail } from '../../hooks/useTreeDetail';
@@ -11,7 +11,9 @@ const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 export default function TreeDetail() {
-  const { rawParam = '', rootId = '' } = useParams();
+  const { rawParam = '' } = useParams();
+  const [searchParams] = useSearchParams();
+  const rootId = searchParams.get('rootId') ?? '';
   const navigate = useNavigate();
   const { token } = theme.useToken();
 

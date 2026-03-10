@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { resolve } from 'path';
+import { findProjectRoot } from '../src/utils/findRoot.js';
 import { ResultReader } from './services/resultReader.js';
 import { RepoReader } from './services/repoReader.js';
 import { createTreeRoutes } from './routes/trees.js';
@@ -13,6 +15,10 @@ export interface ServerConfig {
 
 export function createApp(config: ServerConfig) {
   const app = new Hono();
+
+  // 静态资源绝对路径 — 基于项目根目录，不依赖 cwd
+  const projectRoot = findProjectRoot(import.meta.url);
+  const publicDir = resolve(projectRoot, 'server', 'public');
 
   // 读取 metadata 并计算路径映射
   const resultReader = new ResultReader(config.resultDir);
@@ -46,10 +52,10 @@ export function createApp(config: ServerConfig) {
     });
   });
 
-  // 静态文件 — 前端产物
-  app.use('/*', serveStatic({ root: './server/public' }));
+  // 静态文件 — 前端产物（使用绝对路径）
+  app.use('/*', serveStatic({ root: publicDir }));
   // SPA fallback
-  app.get('*', serveStatic({ root: './server/public', path: 'index.html' }));
+  app.get('*', serveStatic({ root: publicDir, path: 'index.html' }));
 
   return app;
 }
