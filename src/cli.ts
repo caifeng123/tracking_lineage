@@ -7,10 +7,11 @@ import { execSync } from 'child_process';
 import { ConfigManager } from './config.js';
 import { FileResultStore } from './storage/index.js';
 import { Pipeline } from './pipeline/index.js';
+import { findProjectRoot } from './utils/findRoot.js';
 
 const VERSION = '2.0.0';
 
-const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const TOOL_ROOT = findProjectRoot(import.meta.url);
 
 // ==================== 参数解析 ====================
 

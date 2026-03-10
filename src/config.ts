@@ -1,12 +1,11 @@
 import dotenv from 'dotenv';
 import { existsSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { resolve } from 'path';
 import type { LLMConfig, ClaudeAgentConfig, AppConfig } from './types/index.js';
+import { findProjectRoot } from './utils/findRoot.js';
 
 // .env 查找优先级: 当前工作目录 > 工具安装目录 > 用户 home 目录
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const toolRoot = resolve(__dirname, '..');
+const toolRoot = findProjectRoot(import.meta.url);
 const candidates = [
   resolve(process.cwd(), '.env'),
   resolve(toolRoot, '.env'),
@@ -31,7 +30,7 @@ export class ConfigManager {
 
   static getClaudeAgentConfig(): ClaudeAgentConfig {
     const env: Record<string, string> = {
-      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? '',
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? 'http://127.0.0.1:3456',
       ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN ?? '1',
       ...Object.fromEntries(
         Object.entries(process.env).filter(
@@ -40,7 +39,7 @@ export class ConfigManager {
       ) as Record<string, string>,
     };
     return {
-      model: process.env.AGENT_MODEL ?? '',
+      model: process.env.AGENT_MODEL ?? 'volcengine,ep-20251013140123-55ptl',
       env,
     };
   }
