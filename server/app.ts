@@ -7,6 +7,7 @@ import { ResultReader } from './services/resultReader.js';
 import { RepoReader } from './services/repoReader.js';
 import { createTreeRoutes } from './routes/trees.js';
 import { createFileRoutes } from './routes/files.js';
+import { createAnalyzeRoutes } from './routes/analyze.js';
 
 export interface ServerConfig {
   targetDir: string;
@@ -41,6 +42,7 @@ export function createApp(config: ServerConfig) {
   // API 路由
   app.route('/api/trees', createTreeRoutes(resultReader, repoReader));
   app.route('/api/files', createFileRoutes(repoReader));
+  app.route('/api/analyze', createAnalyzeRoutes(config.targetDir));
 
   // 元信息接口
   app.get('/api/metadata', (c) => {

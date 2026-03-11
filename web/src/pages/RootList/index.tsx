@@ -9,7 +9,7 @@ import {
   ApartmentOutlined, FileOutlined, NodeIndexOutlined,
   SearchOutlined, ClockCircleOutlined,
   AppstoreOutlined, BarsOutlined, FunctionOutlined,
-  SortAscendingOutlined, ArrowLeftOutlined,
+  SortAscendingOutlined, ArrowLeftOutlined, PlusCircleOutlined,
   TagOutlined,
 } from '@ant-design/icons';
 import type { RootItem, MetadataResponse } from '../../types';
@@ -231,6 +231,7 @@ export default function RootList() {
             <Text type="secondary">{meta.metadata.repoName}</Text>
             <Tag color="blue">{meta.metadata.commitId?.slice(0, 8)}</Tag>
             {meta.pathMapped && <Tag color="orange">路径已映射</Tag>}
+            <Button type="primary" ghost icon={<PlusCircleOutlined />} onClick={() => navigate("/analyze")} size="small">新分析</Button>
           </Space>
         )}
       </Header>
