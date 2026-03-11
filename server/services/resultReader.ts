@@ -48,6 +48,17 @@ export class ResultReader {
   }
 
   /**
+   * 列出 5-treeAnalyze 下的所有 rawParam
+   */
+  listAnalyzedParams(): string[] {
+    const dir = join(this.resultDir, '5-treeAnalyze');
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  }
+
+  /**
    * 读取某个 rawParam 下的所有 DependencyRecord
    */
   readDependencyRecords(rawParam: string): DepRecord[] {
