@@ -8,6 +8,7 @@ import { fetchDirChildren } from '../../services/api';
 const { Text } = Typography;
 
 interface FileTreeProps {
+  repoName: string;
   tree: DirNode | null;
   onSelect: (filePath: string) => void;
   selectedFile: string;
@@ -42,7 +43,7 @@ function toDataNodes(node: DirNode): DataNode {
   };
 }
 
-export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps) {
+export default function FileTree({ repoName, tree, onSelect, selectedFile }: FileTreeProps) {
   const [lazyLoaded, setLazyLoaded] = useState<Record<string, DataNode[]>>({});
 
   const treeData = useMemo(() => {
@@ -51,7 +52,6 @@ export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps
       ? tree.children.map(toDataNodes)
       : [toDataNodes(tree)];
 
-    // 将已懒加载的子项注入
     function injectLazy(list: DataNode[]): DataNode[] {
       return list.map((node) => {
         const key = node.key as string;
@@ -80,11 +80,10 @@ export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps
 
   const onLoadData = useCallback(async (node: EventDataNode<DataNode>) => {
     const key = node.key as string;
-    // 如果已加载过或已有 children 则跳过
     if (lazyLoaded[key] || (node.children && node.children.length > 0)) return;
 
     try {
-      const res = await fetchDirChildren(key);
+      const res = await fetchDirChildren(repoName, key);
       const childNodes = res.children.map((child): DataNode => {
         const isDir = child.type === 'directory';
         const title = (
@@ -105,10 +104,9 @@ export default function FileTree({ tree, onSelect, selectedFile }: FileTreeProps
       });
       setLazyLoaded((prev) => ({ ...prev, [key]: childNodes }));
     } catch {
-      // 加载失败，设空数组避免重复请求
       setLazyLoaded((prev) => ({ ...prev, [key]: [] }));
     }
-  }, [lazyLoaded]);
+  }, [repoName, lazyLoaded]);
 
   if (!tree) return <Empty description="暂无文件树" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
 

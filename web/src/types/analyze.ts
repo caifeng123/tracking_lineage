@@ -8,11 +8,14 @@ export interface AnalyzeRequest {
 
 /** 分析任务创建响应 */
 export interface AnalyzeCreateResponse {
-  jobId: string;
+  jobId: string | null;
   rawParams: string[];
+  skippedParams?: string[];
+  newParams?: string[];
   targetDir: string;
   resultDir: string;
   message: string;
+  alreadyDone?: boolean;
 }
 
 /** 阶段进度 */

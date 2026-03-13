@@ -1,15 +1,13 @@
 import { serve } from '@hono/node-server';
-import { createApp, type ServerConfig } from './app.js';
+import { createApp } from './app.js';
 
-export function startServer(config: ServerConfig & { port?: number; open?: boolean }): void {
+export function startServer(config: { port?: number; open?: boolean }): void {
   const port = config.port ?? 3000;
-  const app = createApp(config);
+  const app = createApp();
 
   console.log('');
-  console.log('  tracking-lineage viewer');
-  console.log(`  目标仓库: ${config.targetDir}`);
-  console.log(`  结果目录: ${config.resultDir}`);
-  console.log(`  地址:     http://localhost:${port}`);
+  console.log('  tracking-lineage 分析管理平台');
+  console.log(`  地址: http://localhost:${port}`);
   console.log('');
 
   serve({ fetch: app.fetch, port }, (info) => {
@@ -18,9 +16,7 @@ export function startServer(config: ServerConfig & { port?: number; open?: boole
     if (config.open !== false) {
       import('open').then((mod) => {
         mod.default(`http://localhost:${info.port}`).catch(() => {});
-      }).catch(() => {
-        // open 不是必须的
-      });
+      }).catch(() => {});
     }
   });
 }

@@ -62,5 +62,25 @@ export interface MetadataResponse {
   metadata: Metadata | null;
   targetDir: string;
   resultDir: string;
-  pathMapped: boolean;
+}
+
+/** 仓库概览 */
+export interface RepoSummary {
+  name: string;
+  path: string;
+  resultDir: string;
+  hasResults: boolean;
+  gitUrl?: string;
+  metadata?: {
+    commitId?: string;
+    analyzedAt?: string;
+    rawParams?: string[];
+  };
+  lastModified: number;
+}
+
+/** 参数统计 */
+export interface ParamSummary {
+  rawParam: string;
+  treeCount: number;
 }

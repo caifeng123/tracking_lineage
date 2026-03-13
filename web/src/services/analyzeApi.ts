@@ -12,10 +12,10 @@ import type {
 const BASE = '/api';
 
 /**
- * 创建新分析任务
+ * 创建新分析任务（仓库维度）
  */
-export async function createAnalyzeJob(req: AnalyzeRequest): Promise<AnalyzeCreateResponse> {
-  const res = await fetch(BASE + '/analyze', {
+export async function createAnalyzeJob(repoName: string, req: AnalyzeRequest): Promise<AnalyzeCreateResponse> {
+  const res = await fetch(BASE + '/repos/' + encodeURIComponent(repoName) + '/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
@@ -30,8 +30,8 @@ export async function createAnalyzeJob(req: AnalyzeRequest): Promise<AnalyzeCrea
 /**
  * 获取分析任务状态（轮询方式）
  */
-export async function fetchAnalyzeJob(jobId: string): Promise<AnalyzeJobStatus> {
-  const res = await fetch(BASE + '/analyze/' + encodeURIComponent(jobId));
+export async function fetchAnalyzeJob(repoName: string, jobId: string): Promise<AnalyzeJobStatus> {
+  const res = await fetch(BASE + '/repos/' + encodeURIComponent(repoName) + '/analyze/' + encodeURIComponent(jobId));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as any)?.error || 'HTTP ' + res.status);
@@ -42,8 +42,8 @@ export async function fetchAnalyzeJob(jobId: string): Promise<AnalyzeJobStatus> 
 /**
  * 获取所有分析任务列表
  */
-export async function fetchAnalyzeJobs(): Promise<AnalyzeJobListResponse> {
-  const res = await fetch(BASE + '/analyze');
+export async function fetchAnalyzeJobs(repoName: string): Promise<AnalyzeJobListResponse> {
+  const res = await fetch(BASE + '/repos/' + encodeURIComponent(repoName) + '/analyze');
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as any)?.error || 'HTTP ' + res.status);
@@ -68,8 +68,8 @@ export interface AnalyzeSSECallbacks {
  * 订阅分析任务的 SSE 实时事件流
  * @returns 取消订阅函数
  */
-export function subscribeAnalyzeSSE(jobId: string, callbacks: AnalyzeSSECallbacks): () => void {
-  const url = BASE + '/analyze/' + encodeURIComponent(jobId) + '/stream';
+export function subscribeAnalyzeSSE(repoName: string, jobId: string, callbacks: AnalyzeSSECallbacks): () => void {
+  const url = BASE + '/repos/' + encodeURIComponent(repoName) + '/analyze/' + encodeURIComponent(jobId) + '/stream';
   const source = new EventSource(url);
 
   source.addEventListener('init', (e) => {
@@ -120,7 +120,6 @@ export function subscribeAnalyzeSSE(jobId: string, callbacks: AnalyzeSSECallback
     source.close();
   };
 
-  // Return cleanup function
   return () => {
     source.close();
   };

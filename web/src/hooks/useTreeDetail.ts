@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { TreeDetailResponse, FileContent, DirNode } from '../types';
 import { fetchTreeDetail, fetchFileTree, fetchFileContent } from '../services/api';
 
-export function useTreeDetail(rawParam: string, rootId: string) {
+export function useTreeDetail(repoName: string, rawParam: string, rootId: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TreeDetailResponse | null>(null);
@@ -17,11 +17,11 @@ export function useTreeDetail(rawParam: string, rootId: string) {
     setLoading(true);
     setError(null);
 
-    fetchTreeDetail(rawParam, rootId)
+    fetchTreeDetail(repoName, rawParam, rootId)
       .then(async (detail) => {
         if (cancelled) return;
         setData(detail);
-        const treeRes = await fetchFileTree(detail.involvedFiles);
+        const treeRes = await fetchFileTree(repoName, detail.involvedFiles);
         if (!cancelled) setFileTree(treeRes.tree);
         if (detail.root.filePath) {
           loadFileInternal(detail.root.filePath, detail.root.startLine);
@@ -35,14 +35,14 @@ export function useTreeDetail(rawParam: string, rootId: string) {
       });
 
     return () => { cancelled = true; };
-  }, [rawParam, rootId]);
+  }, [repoName, rawParam, rootId]);
 
   async function loadFileInternal(filePath: string, line?: number) {
     setFileLoading(true);
     setSelectedFile(filePath);
     setHighlightLine(line);
     try {
-      const content = await fetchFileContent(filePath);
+      const content = await fetchFileContent(repoName, filePath);
       setFileContent(content);
     } catch {
       setFileContent(null);
@@ -53,7 +53,7 @@ export function useTreeDetail(rawParam: string, rootId: string) {
 
   const loadFile = useCallback((filePath: string, line?: number) => {
     loadFileInternal(filePath, line);
-  }, []);
+  }, [repoName]);
 
   return { loading, error, data, fileTree, fileContent, fileLoading, loadFile, selectedFile, highlightLine };
 }

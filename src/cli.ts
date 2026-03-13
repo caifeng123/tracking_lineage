@@ -25,15 +25,12 @@ interface BaseArgs {
 interface AnalyzeArgs extends BaseArgs {
   command: 'analyze';
   rawParams: string[];
-}
-
-interface ServeArgs extends BaseArgs {
-  command: 'serve';
+  launchDashboard: boolean;
   port: number;
   noOpen: boolean;
 }
 
-type CliArgs = AnalyzeArgs | ServeArgs;
+type CliArgs = AnalyzeArgs;
 
 function parseArgs(argv: string[]): CliArgs {
   const rawParams: string[] = [];
@@ -41,14 +38,14 @@ function parseArgs(argv: string[]): CliArgs {
   let resultDir: string | undefined;
   let showHelp = false;
   let showVersion = false;
-  let command: 'analyze' | 'serve' = 'analyze';
+  let launchDashboard = false;
   let port = 3000;
   let noOpen = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === 'serve') {
-      command = 'serve';
+    if (arg === '--analyze' || arg === '-a') {
+      launchDashboard = true;
     } else if ((arg === '--target' || arg === '-t') && argv[i + 1]) {
       targetDir = argv[++i];
     } else if ((arg === '--output' || arg === '-o') && argv[i + 1]) {
@@ -66,79 +63,54 @@ function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  if (rawParams.length === 0 && command === 'analyze') {
+  if (rawParams.length === 0 && !launchDashboard) {
     const envParams = process.env.RAW_PARAMS;
     if (envParams) {
       rawParams.push(...envParams.split(',').map((s) => s.trim()).filter(Boolean));
     }
   }
 
-  if (command === 'serve') {
-    return { command, targetDir, resultDir, showHelp, showVersion, port, noOpen };
-  }
-  return { command, rawParams, targetDir, resultDir, showHelp, showVersion };
+  return { command: 'analyze', rawParams, targetDir, resultDir, showHelp, showVersion, launchDashboard, port, noOpen };
 }
 
 // ==================== 帮助信息 ====================
 
-function printHelp(command?: string): void {
-  if (command === 'serve') {
-    console.log(`
-tracking-lineage serve v${VERSION}
-启动可视化服务，查看分析结果
-
-用法:
-  tracking-lineage serve [options]
-
-选项:
-  -t, --target <dir>       目标 git 仓库路径（默认当前目录）
-  -o, --output <dir>       结果目录（默认自动检测）
-  -p, --port <port>        服务端口（默认 3000）
-  --no-open                不自动打开浏览器
-  -h, --help               显示帮助信息
-
-示例:
-  # 在目标仓库中启动
-  cd /path/to/repo
-  tracking-lineage serve
-
-  # 指定仓库和端口
-  tracking-lineage serve -t /path/to/repo -p 8080
-`);
-    return;
-  }
-
+function printHelp(): void {
   console.log(`
 tracking-lineage v${VERSION}
 代码参数血缘追踪工具 — 分析指定参数在整个代码仓库中的数据流向
 
 用法:
-  tracking-lineage <param1> [param2] ... [options]
-  tracking-lineage serve [options]
+  tracking-lineage <param1> [param2] ... [options]   单次分析模式
+  tracking-lineage --analyze [options]                启动分析管理平台
 
-命令:
-  <param>                  分析模式 — 追踪指定参数
-  serve                    启动可视化服务查看结果
+模式:
+  <param>                  直接分析指定参数
+  --analyze, -a            启动 Web 管理平台（管理仓库、分析任务、查看结果）
 
-选项:
-  -t, --target <dir>       目标 git 仓库路径（默认当前目录）
+通用选项:
+  -t, --target <dir>       目标 git 仓库路径（默认当前目录，仅单次分析模式需要）
   -o, --output <dir>       结果输出目录（默认 <工具目录>/.results/<仓库名>）
   -h, --help               显示帮助信息
   -V, --version            显示版本号
 
-分析模式选项:
+平台选项:
+  -p, --port <port>        服务端口（默认 3000）
+  --no-open                不自动打开浏览器
+
+环境变量:
   LLM_BASE_URL             LLM API 地址
   LLM_API_KEY              LLM API Key
   LLM_MODEL                LLM 模型名
   AGENT_MODEL              Claude Agent 模型名
 
-可视化选项:
-  -p, --port <port>        服务端口（默认 3000）
-  --no-open                不自动打开浏览器
-
 示例:
+  # 单次分析
   tracking-lineage ecom_scene_id -t /path/to/repo
-  tracking-lineage serve -t /path/to/repo -p 8080
+
+  # 启动管理平台
+  tracking-lineage --analyze
+  tracking-lineage --analyze -p 8080
 `);
 }
 
@@ -167,21 +139,15 @@ function validateGitRepo(dir: string): void {
   }
 }
 
-// ==================== 分析模式 ====================
+// ==================== 单次分析模式 ====================
 
 async function runAnalyze(args: AnalyzeArgs): Promise<void> {
-  if (args.showHelp || args.rawParams.length === 0) {
-    printHelp();
-    process.exit(args.showHelp ? 0 : 1);
-  }
-
   const targetDir = resolve(args.targetDir ?? process.env.TARGET_DIR ?? process.cwd());
   validateGitRepo(targetDir);
 
   const appConfig = ConfigManager.getAppConfig(args.rawParams, targetDir);
   appConfig.resultDir = resolveResultDir(targetDir, args.resultDir);
 
-  // 不切换 cwd — 所有路径通过 targetDir/resultDir 绝对路径传递
   console.log(`tracking-lineage v${VERSION}`);
   console.log(`目标仓库: ${targetDir}`);
   console.log(`追踪参数: ${args.rawParams.join(', ')}`);
@@ -208,44 +174,18 @@ async function runAnalyze(args: AnalyzeArgs): Promise<void> {
     console.log(`函数定位: ${stage3Count}`);
     console.log(`调用树数: ${stage5Count}`);
     console.log(`结果目录: ${appConfig.resultDir}`);
-    console.log(`\n查看结果: tracking-lineage serve -t ${targetDir}`);
+    console.log(`\n查看结果: tracking-lineage --analyze`);
   } catch (error) {
     console.error('Pipeline 执行失败:', error);
     process.exit(1);
   }
 }
 
-// ==================== 可视化模式 ====================
+// ==================== Dashboard 模式 ====================
 
-async function runServe(args: ServeArgs): Promise<void> {
-  if (args.showHelp) {
-    printHelp('serve');
-    process.exit(0);
-  }
-
-  const targetDir = resolve(args.targetDir ?? process.env.TARGET_DIR ?? process.cwd());
-  validateGitRepo(targetDir);
-
-  const resultDir = resolveResultDir(targetDir, args.resultDir);
-
-  if (!existsSync(resultDir)) {
-    console.error(`错误: 结果目录不存在 "${resultDir}"`);
-    console.error('请先运行分析: tracking-lineage <param> -t ' + targetDir);
-    process.exit(1);
-  }
-
-  // 检查是否有分析结果
-  const metadataPath = resolve(resultDir, 'metadata.json');
-  if (!existsSync(metadataPath)) {
-    console.error(`错误: 未找到分析结果 (${metadataPath})`);
-    console.error('请先运行分析: tracking-lineage <param> -t ' + targetDir);
-    process.exit(1);
-  }
-
+async function runDashboard(args: AnalyzeArgs): Promise<void> {
   const { startServer } = await import('../server/index.js');
   startServer({
-    targetDir,
-    resultDir,
     port: args.port,
     open: !args.noOpen,
   });
@@ -261,10 +201,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.command === 'serve') {
-    await runServe(args);
-  } else {
+  if (args.showHelp) {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (args.launchDashboard) {
+    await runDashboard(args);
+  } else if (args.rawParams.length > 0) {
     await runAnalyze(args);
+  } else {
+    printHelp();
+    process.exit(1);
   }
 }
 

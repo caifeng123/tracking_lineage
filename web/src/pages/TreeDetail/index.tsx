@@ -11,7 +11,9 @@ const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 export default function TreeDetail() {
-  const { rawParam = '' } = useParams();
+  const { repoName = '', rawParam = '' } = useParams();
+  const decodedRepoName = decodeURIComponent(repoName);
+  const decodedRawParam = decodeURIComponent(rawParam);
   const [searchParams] = useSearchParams();
   const rootId = searchParams.get('rootId') ?? '';
   const navigate = useNavigate();
@@ -20,7 +22,7 @@ export default function TreeDetail() {
   const {
     loading, error, data, fileTree, fileContent,
     fileLoading, loadFile, selectedFile, highlightLine,
-  } = useTreeDetail(rawParam, decodeURIComponent(rootId));
+  } = useTreeDetail(decodedRepoName, decodedRawParam, decodeURIComponent(rootId));
 
   if (loading) {
     return (
@@ -34,10 +36,15 @@ export default function TreeDetail() {
     return (
       <div style={{ padding: 48 }}>
         <Alert type="error" message="加载失败" description={error} showIcon />
-        <Button style={{ marginTop: 16 }} onClick={() => navigate('/')}>返回列表</Button>
+        <Button style={{ marginTop: 16 }}
+          onClick={() => navigate(`/repo/${encodeURIComponent(decodedRepoName)}/param/${encodeURIComponent(decodedRawParam)}`)}>
+          返回列表
+        </Button>
       </div>
     );
   }
+
+  const backPath = `/repo/${encodeURIComponent(decodedRepoName)}/param/${encodeURIComponent(decodedRawParam)}`;
 
   return (
     <Layout style={{ height: '100vh', background: '#141414' }}>
@@ -45,10 +52,12 @@ export default function TreeDetail() {
         background: '#1f1f1f', display: 'flex', alignItems: 'center', gap: 12,
         padding: '0 16px', borderBottom: '1px solid #303030', height: 48, lineHeight: '48px',
       }}>
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ color: '#fff' }} />
+        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(backPath)} style={{ color: '#fff' }} />
         <ApartmentOutlined style={{ fontSize: 18, color: token.colorPrimary }} />
         <Title level={5} style={{ margin: 0, color: '#fff' }}>{data.root.functionName}</Title>
-        <Text type="secondary" style={{ fontSize: 12 }}>{rawParam} · {data.root.filePath}:{data.root.startLine}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {decodedRepoName} / {decodedRawParam} · {data.root.filePath}:{data.root.startLine}
+        </Text>
       </Header>
 
       <Content style={{ height: 'calc(100vh - 48px)' }}>
@@ -72,7 +81,7 @@ export default function TreeDetail() {
                     <Text strong style={{ fontSize: 13 }}>文件目录</Text>
                   </div>
                   <div style={{ padding: '4px 0' }}>
-                    <FileTree tree={fileTree} onSelect={(filePath) => loadFile(filePath)} selectedFile={selectedFile} />
+                    <FileTree repoName={decodedRepoName} tree={fileTree} onSelect={(filePath) => loadFile(filePath)} selectedFile={selectedFile} />
                   </div>
                 </div>
               </Splitter.Panel>

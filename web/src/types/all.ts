@@ -1,6 +1,7 @@
 export type {
   TreeNode, RootItem, DirNode, FileContent,
   TreeDetailResponse, Metadata, MetadataResponse,
+  RepoSummary, ParamSummary,
 } from './index';
 
 export type {

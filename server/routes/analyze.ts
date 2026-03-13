@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { resolve, join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { execSync } from 'child_process';
 import { findProjectRoot } from '../../src/utils/findRoot.js';
 
@@ -82,11 +82,10 @@ const STAGES = [
   { id: '5-treeAnalyze',    name: '调用树语义分析', index: 5 },
 ] as const;
 
-// Stage ID → index 快查表
 const STAGE_ID_TO_INDEX: Record<string, number> = {};
 for (const s of STAGES) { STAGE_ID_TO_INDEX[s.id] = s.index; }
 
-// ==================== Pipeline Runner ====================
+// ==================== Helpers ====================
 
 function resolveResultDir(targetDir: string): string {
   if (process.env.RESULT_DIR) return resolve(process.env.RESULT_DIR);
@@ -106,13 +105,27 @@ function validateGitRepo(dir: string): string | null {
   }
 }
 
-/**
- * 为 job 推送一个 stage 事件（同时写入 job.progress 并通知 SSE 监听者）
- */
+/** 检查 5-treeAnalyze 下已分析完成的参数 */
+function getAnalyzedParams(resultDir: string): Set<string> {
+  const dir = join(resultDir, '5-treeAnalyze');
+  if (!existsSync(dir)) return new Set();
+  try {
+    return new Set(
+      readdirSync(dir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function emitStage(job: AnalyzeJob, progress: StageProgress): void {
   job.progress.push(progress);
   notifyListeners(job.id, 'stage', progress);
 }
+
+// ==================== Pipeline Runner ====================
 
 async function runPipeline(job: AnalyzeJob): Promise<void> {
   job.status = 'running';
@@ -131,11 +144,6 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
 
     const metadataPath = join(job.resultDir, 'metadata.json');
 
-    // ============================================================
-    // 跟踪哪些 stage 已经被汇报过，避免重复推送
-    // 关键修复：当轮询检测到 stage N，但 stage 1..N-1 从未被汇报过时，
-    //           主动为它们补发 completed（skipped）事件
-    // ============================================================
     const reportedStages = new Set<number>();
     let lastStageId = '';
     let stageStartTime = Date.now();
@@ -152,13 +160,9 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
         const currentIndex = STAGE_ID_TO_INDEX[meta.currentStage];
         if (!currentIndex) return;
 
-        // === 补发被跳过的 stage ===
-        // 如果当前检测到 stage 3，但 stage 1、2 从未被汇报，为它们补发 completed
         for (const s of STAGES) {
           if (s.index >= currentIndex) break;
           if (reportedStages.has(s.index)) continue;
-
-          // 这个 stage 被跳过了（执行太快，轮询没捕获到）
           emitStage(job, {
             stage: s.name,
             stageIndex: s.index,
@@ -170,13 +174,9 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
           reportedStages.add(s.index);
         }
 
-        // === 上一个 stage 完成 ===
         if (lastStageId) {
           const prevIndex = STAGE_ID_TO_INDEX[lastStageId];
           const prevDef = STAGES.find(s => s.index === prevIndex);
-          if (prevDef && !reportedStages.has(prevDef.index)) {
-            // 上一个 stage 之前发过 running，现在标记 completed
-          }
           if (prevDef) {
             emitStage(job, {
               stage: prevDef.name,
@@ -190,7 +190,6 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
           }
         }
 
-        // === 当前 stage 开始 ===
         lastStageId = meta.currentStage;
         stageStartTime = Date.now();
         job.currentStage = meta.currentStage;
@@ -204,17 +203,13 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
             status: 'running',
             message: `正在执行 ${stageDef.name}...`,
           });
-          // 注意：running 不标记 reported，等 completed 时再标记
         }
-      } catch { /* 忽略文件读取错误 */ }
+      } catch { /* ignore */ }
     }, 500);
 
-    // ============ 真实执行 Pipeline ============
     const ctx = await pipeline.run();
     clearInterval(pollInterval);
 
-    // === Pipeline 完成后，补发所有未汇报的 stage ===
-    // 可能最后几个 stage 也执行太快了
     for (const s of STAGES) {
       if (!reportedStages.has(s.index)) {
         emitStage(job, {
@@ -229,7 +224,6 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
       }
     }
 
-    // 标记最后一个正在执行的 stage 为 completed
     if (lastStageId) {
       const prevDef = STAGES.find(s => s.id === lastStageId);
       if (prevDef) {
@@ -244,7 +238,6 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
       }
     }
 
-    // 提取 Pipeline 结果
     const stage3Count = ctx.stage3?.allLocations.length ?? 0;
     const stage5Count = ctx.stage5
       ? [...ctx.stage5.treesByParam.values()].reduce((sum, trees) => sum + trees.length, 0)
@@ -305,11 +298,30 @@ export function createAnalyzeRoutes(defaultTargetDir?: string): Hono {
     }
 
     const resultDir = resolveResultDir(targetDir);
+
+    // 过滤已分析完成的参数（相同字段直接跳过）
+    const existingParams = getAnalyzedParams(resultDir);
+    const newParams = rawParams.filter(p => !existingParams.has(p));
+    const skippedParams = rawParams.filter(p => existingParams.has(p));
+
+    if (newParams.length === 0) {
+      return c.json({
+        jobId: null,
+        rawParams,
+        skippedParams,
+        newParams: [],
+        targetDir,
+        resultDir,
+        message: `所有参数已分析过，跳过: ${skippedParams.join(', ')}`,
+        alreadyDone: true,
+      }, 200);
+    }
+
     const jobId = generateJobId();
 
     const job: AnalyzeJob = {
       id: jobId,
-      rawParams,
+      rawParams: newParams,
       targetDir,
       resultDir,
       status: 'queued',
@@ -322,11 +334,14 @@ export function createAnalyzeRoutes(defaultTargetDir?: string): Hono {
 
     return c.json({
       jobId,
-      rawParams,
+      rawParams: newParams,
+      skippedParams,
       targetDir,
       resultDir,
       startTime: job.startTime,
-      message: `分析任务已创建，追踪参数: ${rawParams.join(', ')}`,
+      message: skippedParams.length > 0
+        ? `分析任务已创建，追踪: ${newParams.join(', ')}（跳过已分析: ${skippedParams.join(', ')}）`
+        : `分析任务已创建，追踪参数: ${newParams.join(', ')}`,
     }, 201);
   });
 
