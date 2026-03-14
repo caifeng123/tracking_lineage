@@ -1,4 +1,5 @@
 export { Pipeline } from './Pipeline.js';
+export type { PipelineOptions } from './Pipeline.js';
 export type {
   PipelineContext,
   ProjectAnalyzeResult,
