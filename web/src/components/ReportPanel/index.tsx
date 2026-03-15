@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { Typography, Descriptions, Tag, Empty, Divider, Tooltip } from 'antd';
 import { ApartmentOutlined, FileOutlined, CodeOutlined, FileTextOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
@@ -16,7 +16,6 @@ const { Text } = Typography;
 interface ReportPanelProps {
   summary: string;
   root: TreeNode;
-  /** 点击文件路径时的回调 — 与 CallTree 的 onSelect 行为一致 */
   onNavigate?: (filePath: string, line?: number) => void;
 }
 
@@ -55,27 +54,102 @@ function StatCard({ icon, label, value, warn }: { icon: React.ReactNode; label: 
 }
 
 /* ------------------------------------------------------------------ */
-/*  Path → clickable link logic                                        */
+/*  Path mapping: absolutePath → relativePath (filePath)               */
 /* ------------------------------------------------------------------ */
 
 /**
- * 匹配绝对路径（以 / 开头，包含至少一个 / 分隔的路径段，以常见扩展名结尾）
- * 可选的 :行号 后缀（支持逗号分隔多行号如 :70,79）
+ * 遍历调用树，建立映射表 + 推断仓库根前缀
  *
- * 示例命中:
- *   /data00/home/xxx/src/pages/channel/index.ts:22
- *   /src/services/getResources.ts:70,79
- *   /apps/gov_channel/src/utils.tsx
+ * TreeNode 中：
+ *   - filePath：相对路径（后端 API 需要这个）
+ *   - absolutePath：分析时的绝对路径（LLM 报告中的路径）
  */
-const ABS_PATH_RE = /(\/(?:[\w.@-]+\/)+[\w.@-]+\.(?:ts|tsx|js|jsx|vue|mjs|cjs|css|scss|less|json|html|md))(?::(\d+(?:,\d+)*))?/g;
+function buildPathMaps(root: TreeNode) {
+  const absToRel = new Map<string, string>();
+  let repoPrefix = '';  // 推断出的仓库根目录前缀
 
-/** 从绝对路径中提取文件名 */
+  function walk(node: TreeNode) {
+    if (node.absolutePath && node.filePath) {
+      absToRel.set(node.absolutePath, node.filePath);
+
+      // 推断仓库前缀：absolutePath 去掉尾部 filePath 就是前缀
+      // 例如 absolutePath = /data00/home/user/repo/src/index.ts
+      //      filePath     = src/index.ts
+      //      prefix       = /data00/home/user/repo/
+      if (!repoPrefix && node.absolutePath.endsWith(node.filePath)) {
+        repoPrefix = node.absolutePath.slice(0, node.absolutePath.length - node.filePath.length);
+      }
+    }
+    if (node.filePath) {
+      absToRel.set(node.filePath, node.filePath);
+    }
+    if (!node.isCycle) {
+      for (const child of node.children) walk(child);
+    }
+  }
+
+  walk(root);
+  return { absToRel, repoPrefix };
+}
+
+/**
+ * 将绝对路径转为相对路径 — **始终返回一个可用的路径，永不返回 null**
+ */
+function resolveToRelative(
+  absPath: string,
+  absToRel: Map<string, string>,
+  repoPrefix: string,
+): string {
+  // 1. 精确匹配
+  const exact = absToRel.get(absPath);
+  if (exact) return exact;
+
+  // 2. 用已推断的仓库前缀截取
+  if (repoPrefix && absPath.startsWith(repoPrefix)) {
+    return absPath.slice(repoPrefix.length);
+  }
+
+  // 3. 尾缀匹配：遍历已知映射
+  for (const [knownAbs, relPath] of absToRel) {
+    if (knownAbs.endsWith(absPath) || absPath.endsWith(knownAbs)) {
+      return relPath;
+    }
+    if (absPath.endsWith('/' + relPath)) {
+      return relPath;
+    }
+  }
+
+  // 4. 最终回退：如果路径以 / 开头，智能截取
+  //    常见模式：去掉前面的 /data00/xxx/repos/repoName/ 部分
+  //    策略：从已知相对路径的第一个目录段在绝对路径中找位置
+  if (absPath.startsWith('/')) {
+    // 尝试找到 src/ / pages/ / components/ / services/ / utils/ / lib/ 等常见目录
+    const commonDirs = ['src/', 'pages/', 'components/', 'services/', 'lib/', 'app/', 'apps/', 'packages/'];
+    for (const dir of commonDirs) {
+      const idx = absPath.indexOf('/' + dir);
+      if (idx !== -1) {
+        return absPath.slice(idx + 1);
+      }
+    }
+    // 最后方案：去掉开头的 /，直接作为路径传给后端（后端 safePath 会处理）
+    return absPath.replace(/^\/+/, '');
+  }
+
+  // 不以 / 开头 → 可能本身就是相对路径
+  return absPath;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Path regex & parsing                                               */
+/* ------------------------------------------------------------------ */
+
+const ABS_PATH_RE = /(\/(?:[\w.@-]+\/)+[\w.@-]+\.[\w]+):(\d+(?:,\d+)*)/g;
+
 function basename(absPath: string): string {
   const parts = absPath.split('/');
   return parts[parts.length - 1] || absPath;
 }
 
-/** 解析行号字符串 "22" 或 "70,79" → 取第一个数字 */
 function parseFirstLine(lineStr?: string): number | undefined {
   if (!lineStr) return undefined;
   const first = lineStr.split(',')[0];
@@ -90,75 +164,60 @@ interface PathSegment {
   lineStr?: string;
 }
 
-/**
- * 将一段文本拆分成 text / path 交替的片段数组
- */
 function splitByPaths(text: string): PathSegment[] {
   const segments: PathSegment[] = [];
   let lastIndex = 0;
-
-  // 每次调用需要重置 lastIndex（全局正则）
   ABS_PATH_RE.lastIndex = 0;
 
   let match: RegExpExecArray | null;
   while ((match = ABS_PATH_RE.exec(text)) !== null) {
     const [fullMatch, absPath, lineStr] = match;
     const start = match.index;
-
-    // 前面的纯文本
     if (start > lastIndex) {
       segments.push({ type: 'text', value: text.slice(lastIndex, start) });
     }
-
-    segments.push({
-      type: 'path',
-      value: fullMatch,
-      absPath,
-      line: parseFirstLine(lineStr),
-      lineStr,
-    });
-
+    segments.push({ type: 'path', value: fullMatch, absPath, line: parseFirstLine(lineStr), lineStr });
     lastIndex = start + fullMatch.length;
   }
-
-  // 尾部纯文本
   if (lastIndex < text.length) {
     segments.push({ type: 'text', value: text.slice(lastIndex) });
   }
-
   return segments;
 }
 
 /* ------------------------------------------------------------------ */
-/*  PathLink — 可点击的文件名标签                                        */
+/*  PathLink component — 始终可点击                                     */
 /* ------------------------------------------------------------------ */
 
-function PathLink({ absPath, line, lineStr, onNavigate }: {
+function PathLink({ absPath, line, lineStr, absToRel, repoPrefix, onNavigate }: {
   absPath: string;
   line?: number;
   lineStr?: string;
+  absToRel: Map<string, string>;
+  repoPrefix: string;
   onNavigate?: (filePath: string, line?: number) => void;
 }) {
   const fileName = basename(absPath);
   const displayText = lineStr ? `${fileName}:${lineStr}` : fileName;
+  const relPath = resolveToRelative(absPath, absToRel, repoPrefix);
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onNavigate?.(absPath, line);
+    onNavigate?.(relPath, line);
   };
 
   return (
     <Tooltip
-      title={absPath + (lineStr ? ':' + lineStr : '')}
-      placement="top"
-      overlayStyle={{ maxWidth: 500 }}
-      overlayInnerStyle={{ fontSize: 11, wordBreak: 'break-all' }}
+      title={
+        <div>
+          <div style={{ fontFamily: 'monospace', fontSize: 11 }}>{relPath}{lineStr ? ':' + lineStr : ''}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>点击跳转到代码</div>
+        </div>
+      }
+      placement="top" overlayStyle={{ maxWidth: 500 }}
     >
-      <span
-        className="report-path-link"
-        role="button"
-        tabIndex={0}
+      <span className="report-path-link" role="button" tabIndex={0}
         onClick={handleClick}
         onKeyDown={(e) => { if (e.key === 'Enter') handleClick(e as unknown as React.MouseEvent); }}
       >
@@ -170,19 +229,17 @@ function PathLink({ absPath, line, lineStr, onNavigate }: {
 }
 
 /* ------------------------------------------------------------------ */
-/*  renderTextWithPaths — 将文本中路径替换为可点击组件                      */
+/*  Text → PathLink renderer                                           */
 /* ------------------------------------------------------------------ */
 
 function renderTextWithPaths(
   text: string,
+  absToRel: Map<string, string>,
+  repoPrefix: string,
   onNavigate?: (filePath: string, line?: number) => void,
 ): React.ReactNode {
   const segments = splitByPaths(text);
-
-  // 没有任何路径命中 → 返回原始文本
-  if (segments.length === 1 && segments[0].type === 'text') {
-    return text;
-  }
+  if (segments.length === 1 && segments[0].type === 'text') return text;
 
   return (
     <>
@@ -190,13 +247,8 @@ function renderTextWithPaths(
         seg.type === 'text' ? (
           <React.Fragment key={i}>{seg.value}</React.Fragment>
         ) : (
-          <PathLink
-            key={i}
-            absPath={seg.absPath!}
-            line={seg.line}
-            lineStr={seg.lineStr}
-            onNavigate={onNavigate}
-          />
+          <PathLink key={i} absPath={seg.absPath!} line={seg.line} lineStr={seg.lineStr}
+            absToRel={absToRel} repoPrefix={repoPrefix} onNavigate={onNavigate} />
         )
       )}
     </>
@@ -204,129 +256,55 @@ function renderTextWithPaths(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Build custom ReactMarkdown components                              */
+/*  Custom ReactMarkdown components                                    */
 /* ------------------------------------------------------------------ */
 
-function useMarkdownComponents(onNavigate?: (filePath: string, line?: number) => void): Components {
-  return useMemo<Components>(() => ({
-    /**
-     * 行内 code — 典型格式：`funcName(/abs/path/file.ts:22)`
-     * 将其中的绝对路径替换为可点击短文件名
-     */
-    code({ children, className, ...props }) {
-      // 如果是代码块内的 code（有 className 说明是 highlight），不处理
-      if (className) {
-        return <code className={className} {...props}>{children}</code>;
-      }
+function useMarkdownComponents(
+  absToRel: Map<string, string>,
+  repoPrefix: string,
+  onNavigate?: (filePath: string, line?: number) => void,
+): Components {
+  return useMemo<Components>(() => {
+    function processChildren(children: React.ReactNode): React.ReactNode {
+      return React.Children.map(children, (child) => {
+        if (typeof child === 'string') {
+          return renderTextWithPaths(child, absToRel, repoPrefix, onNavigate);
+        }
+        return child;
+      });
+    }
 
-      const raw = String(children).replace(/\n$/, '');
-      const segments = splitByPaths(raw);
-      const hasPath = segments.some((s) => s.type === 'path');
+    return {
+      code({ children, className, ...props }) {
+        if (className) {
+          return <code className={className} {...props}>{children}</code>;
+        }
+        const raw = String(children).replace(/\n$/, '');
+        const segments = splitByPaths(raw);
+        const hasPath = segments.some((s) => s.type === 'path');
+        if (!hasPath) return <code {...props}>{children}</code>;
 
-      if (!hasPath) {
-        return <code {...props}>{children}</code>;
-      }
+        return (
+          <code {...props} className="report-code-with-link">
+            {segments.map((seg, i) =>
+              seg.type === 'text' ? (
+                <React.Fragment key={i}>{seg.value}</React.Fragment>
+              ) : (
+                <PathLink key={i} absPath={seg.absPath!} line={seg.line} lineStr={seg.lineStr}
+                  absToRel={absToRel} repoPrefix={repoPrefix} onNavigate={onNavigate} />
+              )
+            )}
+          </code>
+        );
+      },
 
-      // 有路径 → 渲染为带可点击链接的 code 标签
-      return (
-        <code {...props} className="report-code-with-link">
-          {segments.map((seg, i) =>
-            seg.type === 'text' ? (
-              <React.Fragment key={i}>{seg.value}</React.Fragment>
-            ) : (
-              <PathLink
-                key={i}
-                absPath={seg.absPath!}
-                line={seg.line}
-                lineStr={seg.lineStr}
-                onNavigate={onNavigate}
-              />
-            )
-          )}
-        </code>
-      );
-    },
-
-    /**
-     * 普通文本段落 — 扫描其中的绝对路径
-     */
-    p({ children, ...props }) {
-      return (
-        <p {...props}>
-          {React.Children.map(children, (child) => {
-            if (typeof child === 'string') {
-              return renderTextWithPaths(child, onNavigate);
-            }
-            return child;
-          })}
-        </p>
-      );
-    },
-
-    /**
-     * 列表项 — 扫描其中的绝对路径
-     */
-    li({ children, ...props }) {
-      return (
-        <li {...props}>
-          {React.Children.map(children, (child) => {
-            if (typeof child === 'string') {
-              return renderTextWithPaths(child, onNavigate);
-            }
-            return child;
-          })}
-        </li>
-      );
-    },
-
-    /**
-     * 表格单元格 — 扫描其中的绝对路径
-     */
-    td({ children, ...props }) {
-      return (
-        <td {...props}>
-          {React.Children.map(children, (child) => {
-            if (typeof child === 'string') {
-              return renderTextWithPaths(child, onNavigate);
-            }
-            return child;
-          })}
-        </td>
-      );
-    },
-
-    /**
-     * 标题 — 扫描其中的绝对路径（链路分析小节标题常含路径）
-     */
-    h4({ children, ...props }) {
-      return (
-        <h4 {...props}>
-          {React.Children.map(children, (child) => {
-            if (typeof child === 'string') {
-              return renderTextWithPaths(child, onNavigate);
-            }
-            return child;
-          })}
-        </h4>
-      );
-    },
-
-    /**
-     * strong — 扫描其中的绝对路径
-     */
-    strong({ children, ...props }) {
-      return (
-        <strong {...props}>
-          {React.Children.map(children, (child) => {
-            if (typeof child === 'string') {
-              return renderTextWithPaths(child, onNavigate);
-            }
-            return child;
-          })}
-        </strong>
-      );
-    },
-  }), [onNavigate]);
+      p({ children, ...props }) { return <p {...props}>{processChildren(children)}</p>; },
+      li({ children, ...props }) { return <li {...props}>{processChildren(children)}</li>; },
+      td({ children, ...props }) { return <td {...props}>{processChildren(children)}</td>; },
+      h4({ children, ...props }) { return <h4 {...props}>{processChildren(children)}</h4>; },
+      strong({ children, ...props }) { return <strong {...props}>{processChildren(children)}</strong>; },
+    };
+  }, [absToRel, repoPrefix, onNavigate]);
 }
 
 /* ------------------------------------------------------------------ */
@@ -335,7 +313,8 @@ function useMarkdownComponents(onNavigate?: (filePath: string, line?: number) =>
 
 export default function ReportPanel({ summary, root, onNavigate }: ReportPanelProps) {
   const stats = collectStats(root);
-  const components = useMarkdownComponents(onNavigate);
+  const { absToRel, repoPrefix } = useMemo(() => buildPathMaps(root), [root]);
+  const components = useMarkdownComponents(absToRel, repoPrefix, onNavigate);
 
   return (
     <div>
@@ -403,7 +382,7 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
           transform: scale(0.97);
         }
 
-        /* code 标签内含路径链接时的样式调整 */
+        /* code 标签内含路径链接 */
         .report-code-with-link {
           background: #2a2d35 !important;
           padding: 2px 4px !important;
@@ -458,7 +437,7 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
           line-height: 1.6;
         }
 
-        /* rehype-highlight 语法高亮色 (GitHub Dark 风格) */
+        /* rehype-highlight 语法高亮 (GitHub Dark) */
         .report-markdown .hljs-keyword { color: #ff7b72; }
         .report-markdown .hljs-string { color: #a5d6ff; }
         .report-markdown .hljs-number { color: #79c0ff; }
@@ -517,7 +496,6 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
         .report-markdown tbody tr:nth-child(even) { background: #1e2030; }
         .report-markdown tbody tr:hover { background: rgba(31, 111, 235, 0.12); }
 
-        /* 表格内代码 */
         .report-markdown td code, .report-markdown th code {
           background: rgba(110, 118, 129, 0.2);
           padding: 1px 5px;
@@ -528,26 +506,14 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
         }
 
         /* ===== 分隔线 ===== */
-        .report-markdown hr {
-          border: none;
-          border-top: 1px solid #303030;
-          margin: 16px 0;
-        }
+        .report-markdown hr { border: none; border-top: 1px solid #303030; margin: 16px 0; }
 
         /* ===== 链接 ===== */
-        .report-markdown a {
-          color: #58a6ff;
-          text-decoration: none;
-        }
-        .report-markdown a:hover {
-          text-decoration: underline;
-        }
+        .report-markdown a { color: #58a6ff; text-decoration: none; }
+        .report-markdown a:hover { text-decoration: underline; }
 
         /* ===== 删除线 (GFM) ===== */
-        .report-markdown del {
-          color: #8b949e;
-          text-decoration: line-through;
-        }
+        .report-markdown del { color: #8b949e; text-decoration: line-through; }
       `}</style>
     </div>
   );

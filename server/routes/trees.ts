@@ -27,10 +27,10 @@ function estimateTreeStats(treeStr: string): { depth: number; nodeCount: number;
   let maxDepth = 0;
 
   for (const line of lines) {
-    // 估算深度：每 4 个空格或一个 │ 前缀代表一层
-    const stripped = line.replace(/[│├└─\s]/g, '');
+    // 估算深度：计算前导树形字符占的宽度，每 4 字符 = 一层
+    // printTree 根节点自带 └── (4字符)，所以 depth 从 0 开始再 +1 与详情页对齐
     const leadingLen = line.length - line.replace(/^[\s│├└─]+/, '').length;
-    const depth = Math.floor(leadingLen / 4) + 1;
+    const depth = Math.floor(leadingLen / 4);
     if (depth > maxDepth) maxDepth = depth;
 
     // 提取文件名 (格式: functionName (filepath:line) 或 filepath:line)
