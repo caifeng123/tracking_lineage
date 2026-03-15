@@ -102,7 +102,7 @@ export default function TreeDetail() {
                 <Text strong style={{ fontSize: 13 }}>分析报告</Text>
               </div>
               <div style={{ padding: 16 }}>
-                <ReportPanel summary={data.summary} root={data.root} />
+                <ReportPanel summary={data.summary} root={data.root} onNavigate={loadFile} />
               </div>
             </div>
           </Splitter.Panel>
