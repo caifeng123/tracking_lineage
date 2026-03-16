@@ -3,9 +3,7 @@ import type { ResultReader } from '../services/resultReader.js';
 import type { RepoReader } from '../services/repoReader.js';
 import {
   buildStructuralTrees,
-  getTreeStats,
-  collectInvolvedFiles,
-  type TreeNode,
+  collectInvolvedFiles
 } from '../utils/structuralTree.js';
 
 export interface RootItem {
@@ -34,9 +32,9 @@ function estimateTreeStats(treeStr: string): { depth: number; nodeCount: number;
     if (depth > maxDepth) maxDepth = depth;
 
     // 提取文件名 (格式: functionName (filepath:line) 或 filepath:line)
-    const match = line.match(/\(([^)]+:\d+)\)/);
+    const match = line.match(/\(([^)]+:-?\d+)\)/);
     if (match) {
-      const filePart = match[1].replace(/:\d+$/, '');
+      const filePart = match[1].replace(/:(-?\d+)$/, '');
       files.add(filePart);
     }
   }

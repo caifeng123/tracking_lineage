@@ -18,6 +18,7 @@ import type { ParamSummary } from '../../types';
 import { fetchRepoParams } from '../../services/api';
 import {
   createAnalyzeJob, subscribeAnalyzeSSE, fetchAnalyzeJob,
+  fetchAnalyzeJobs,
 } from '../../services/analyzeApi';
 
 const { Header, Content } = Layout;
@@ -48,6 +49,14 @@ const STAGE_STEPS = [
   { title: '依赖图',   description: 'Stage 4' },
   { title: '调用树',   description: 'Stage 5' },
 ];
+
+const STAGE_NAMES: Record<string, string> = {
+  '1-projectAnalyze': '项目概览',
+  '2-paramVariant': '参数变种',
+  '3-paramLocate': '函数定位',
+  '4-findCall': '依赖图构建',
+  '5-treeAnalyze': '调用树分析',
+};
 
 /* ==================== Helpers ==================== */
 
@@ -92,6 +101,17 @@ function countCompletedStages(m: Map<number, StageStatus>): number {
   let c = 0;
   for (const [, status] of m) { if (status === 'completed' || status === 'skipped') c++; }
   return c;
+}
+
+/* ==================== Types for active jobs ==================== */
+
+interface ActiveJobInfo {
+  id: string;
+  rawParams: string[];
+  status: 'queued' | 'running';
+  currentStage?: string;
+  startTime: number;
+  durationMs: number;
 }
 
 /* ==================== ParamTagInput ==================== */
@@ -188,20 +208,202 @@ function StageTimeline({ progress, stageStatuses }: { progress: StageProgress[];
 
 /* ==================== ParamCard ==================== */
 
-function ParamCard({ param, onClick }: { param: ParamSummary; onClick: () => void }) {
+function ParamCard({ param, onClick, analyzingJob, onClickJob }: {
+  param: ParamSummary;
+  onClick: () => void;
+  analyzingJob?: ActiveJobInfo;
+  onClickJob?: (jobId: string) => void;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!analyzingJob) return;
+    setElapsed(Date.now() - analyzingJob.startTime);
+    const timer = setInterval(() => setElapsed(Date.now() - analyzingJob.startTime), 1000);
+    return () => clearInterval(timer);
+  }, [analyzingJob]);
+
+  const stageName = analyzingJob?.currentStage
+    ? (STAGE_NAMES[analyzingJob.currentStage] || analyzingJob.currentStage)
+    : null;
+
   return (
     <Card hoverable onClick={onClick}
-      style={{ background: '#1f1f1f', borderColor: '#303030', height: '100%', transition: 'border-color 0.2s' }}
+      style={{
+        background: '#1f1f1f',
+        borderColor: analyzingJob ? 'rgba(22,119,255,0.3)' : '#303030',
+        height: '100%',
+        transition: 'border-color 0.2s',
+      }}
       styles={{ body: { padding: '20px 24px' } }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <TagOutlined style={{ fontSize: 20, color: '#1677ff' }} />
         <Text strong style={{ fontSize: 18, color: '#e6e6e6' }}>{param.rawParam}</Text>
+        {analyzingJob && (
+          <Tag color="processing" icon={<LoadingOutlined spin />} style={{ margin: 0, fontSize: 11 }}>
+            分析中
+          </Tag>
+        )}
       </div>
       <div>
         <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>调用树</Text>
         <Text style={{ fontSize: 24, fontWeight: 600, color: '#1677ff' }}>{param.treeCount}</Text>
       </div>
+      {analyzingJob && (
+        <div
+          onClick={(e) => { e.stopPropagation(); onClickJob?.(analyzingJob.id); }}
+          style={{
+            marginTop: 12, padding: '8px 12px',
+            background: 'linear-gradient(135deg, rgba(22,119,255,0.12) 0%, rgba(114,46,209,0.10) 100%)',
+            borderRadius: 8, border: '1px solid rgba(22,119,255,0.25)',
+            cursor: 'pointer', transition: 'all 0.2s',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(22,119,255,0.5)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(22,119,255,0.25)'; }}
+        >
+          <LoadingOutlined spin style={{ color: '#1677ff', fontSize: 14 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Text strong style={{ fontSize: 12, color: '#1677ff' }}>
+                {analyzingJob.status === 'queued' ? '排队中' : '正在生成'}
+              </Text>
+              {stageName && (
+                <Tag color="processing" style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>
+                  {stageName}
+                </Tag>
+              )}
+            </div>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              <ClockCircleOutlined style={{ marginRight: 4 }} />{formatDuration(elapsed)}
+            </Text>
+          </div>
+        </div>
+      )}
     </Card>
+  );
+}
+
+/* ==================== AnalyzingParamCard (no existing result yet) ==================== */
+
+function AnalyzingParamCard({ paramName, job, onClickJob }: {
+  paramName: string;
+  job: ActiveJobInfo;
+  onClickJob: (jobId: string) => void;
+}) {
+  const [elapsed, setElapsed] = useState(Date.now() - job.startTime);
+
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed(Date.now() - job.startTime), 1000);
+    return () => clearInterval(timer);
+  }, [job.startTime]);
+
+  const stageName = job.currentStage ? (STAGE_NAMES[job.currentStage] || job.currentStage) : null;
+
+  return (
+    <Card
+      hoverable
+      onClick={() => onClickJob(job.id)}
+      style={{
+        background: '#1f1f1f',
+        borderColor: 'rgba(22,119,255,0.3)',
+        height: '100%',
+        transition: 'border-color 0.2s',
+        cursor: 'pointer',
+      }}
+      styles={{ body: { padding: '20px 24px' } }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <LoadingOutlined spin style={{ fontSize: 20, color: '#1677ff' }} />
+        <Text strong style={{ fontSize: 18, color: '#e6e6e6' }}>{paramName}</Text>
+        <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
+          {job.status === 'queued' ? '排队中' : '生成中'}
+        </Tag>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {stageName && (
+          <Tag color="processing" style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>
+            {stageName}
+          </Tag>
+        )}
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          <ClockCircleOutlined style={{ marginRight: 4 }} />
+          {formatDuration(elapsed)}
+        </Text>
+      </div>
+    </Card>
+  );
+}
+
+/* ==================== Params List Section (reusable) ==================== */
+
+function ParamsListSection({
+  params, paramsLoading, paramsError, loadParams,
+  pureAnalyzingEntries, analyzingParamJobMap,
+  onParamClick, onClickActiveJob,
+}: {
+  params: ParamSummary[];
+  paramsLoading: boolean;
+  paramsError: string | null;
+  loadParams: () => void;
+  pureAnalyzingEntries: Array<{ paramName: string; job: ActiveJobInfo }>;
+  analyzingParamJobMap: Map<string, ActiveJobInfo>;
+  onParamClick: (rawParam: string) => void;
+  onClickActiveJob: (jobId: string) => void;
+}) {
+  return (
+    <>
+      {/* 正在生成的字段 */}
+      {pureAnalyzingEntries.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <Title level={5} style={{ color: '#e6e6e6', margin: 0 }}>
+              <LoadingOutlined spin style={{ marginRight: 8, color: '#1677ff' }} />正在生成的字段
+              <Tag color="processing" style={{ marginLeft: 8, fontSize: 12 }}>{pureAnalyzingEntries.length}</Tag>
+            </Title>
+          </div>
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {pureAnalyzingEntries.map((entry) => (
+              <Col xs={24} sm={12} lg={8} key={`${entry.job.id}-${entry.paramName}`}>
+                <AnalyzingParamCard
+                  paramName={entry.paramName}
+                  job={entry.job}
+                  onClickJob={onClickActiveJob}
+                />
+              </Col>
+            ))}
+          </Row>
+        </>
+      )}
+
+      {/* 已分析参数 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <Title level={5} style={{ color: '#e6e6e6', margin: 0 }}><DatabaseOutlined style={{ marginRight: 8 }} />已分析参数</Title>
+        <Button type="text" icon={<ReloadOutlined />} onClick={loadParams} style={{ color: '#999' }}>刷新</Button>
+      </div>
+
+      {paramsLoading ? (
+        <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+      ) : paramsError ? (
+        <Alert type="error" showIcon message="加载失败" description={paramsError}
+          action={<Button onClick={loadParams} size="small">重试</Button>} />
+      ) : params.length === 0 ? (
+        <Empty description={<Text type="secondary">暂无分析结果，点击上方「新分析」开始</Text>} style={{ padding: 60 }} />
+      ) : (
+        <Row gutter={[16, 16]}>
+          {params.map(param => (
+            <Col xs={24} sm={12} lg={8} key={param.rawParam}>
+              <ParamCard
+                param={param}
+                onClick={() => onParamClick(param.rawParam)}
+                analyzingJob={analyzingParamJobMap.get(param.rawParam)}
+                onClickJob={onClickActiveJob}
+              />
+            </Col>
+          ))}
+        </Row>
+      )}
+    </>
   );
 }
 
@@ -232,6 +434,12 @@ export default function RepoDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [skippedParams, setSkippedParams] = useState<string[]>([]);
+  // The rawParams of the current active job (for display in header)
+  const [jobRawParams, setJobRawParams] = useState<string[]>([]);
+
+  // Active jobs (for "generating" section)
+  const [activeJobs, setActiveJobs] = useState<ActiveJobInfo[]>([]);
+  const activeJobsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Timer
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -240,7 +448,11 @@ export default function RepoDetailPage() {
   const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    return () => { if (timerRef.current) clearInterval(timerRef.current); if (unsubRef.current) unsubRef.current(); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (unsubRef.current) unsubRef.current();
+      if (activeJobsPollRef.current) clearInterval(activeJobsPollRef.current);
+    };
   }, []);
 
   const loadParams = useCallback(async () => {
@@ -251,21 +463,46 @@ export default function RepoDetailPage() {
 
   useEffect(() => { loadParams(); }, [loadParams]);
 
+  // Poll active jobs for this repo
+  const pollActiveJobs = useCallback(async () => {
+    try {
+      const res = await fetchAnalyzeJobs(decoded);
+      const active = res.jobs
+        .filter(j => j.status === 'running' || j.status === 'queued')
+        .map(j => ({
+          id: j.id,
+          rawParams: j.rawParams,
+          status: j.status as 'queued' | 'running',
+          currentStage: j.currentStage,
+          startTime: j.startTime,
+          durationMs: j.durationMs,
+        }));
+      setActiveJobs(active);
+    } catch {
+      // ignore polling errors
+    }
+  }, [decoded]);
+
+  useEffect(() => {
+    pollActiveJobs();
+    activeJobsPollRef.current = setInterval(pollActiveJobs, 5000);
+    return () => {
+      if (activeJobsPollRef.current) clearInterval(activeJobsPollRef.current);
+    };
+  }, [pollActiveJobs]);
+
   // 从 URL 中的 jobId 恢复分析任务进度
   const restoredRef = useRef(false);
   useEffect(() => {
     if (!initialJobId || restoredRef.current) return;
     restoredRef.current = true;
-    // 清除 URL 中的 jobId 参数，避免刷新重复触发
     setSearchParams({}, { replace: true });
-    // 恢复任务状态
     setJobId(initialJobId);
     setJobStatus('running');
     setShowForm(false);
-    // 先获取当前任务状态
     fetchAnalyzeJob(decoded, initialJobId).then(job => {
       setProgress(job.progress);
-      if (job.rawParams) setRawParams(job.rawParams);
+      if (job.rawParams) { setRawParams(job.rawParams); setJobRawParams(job.rawParams); }
       if (job.startTime) startTimer(job.startTime);
       if (job.status === 'completed') {
         setJobStatus('completed');
@@ -276,12 +513,10 @@ export default function RepoDetailPage() {
         if (job.error) setError(job.error);
         stopTimer(job.durationMs);
       } else {
-        // 仍在运行，订阅 SSE
         setJobStatus(job.status);
         subscribeToJob(initialJobId);
       }
     }).catch(() => {
-      // 获取失败，仍尝试订阅 SSE
       subscribeToJob(initialJobId);
     });
   }, [initialJobId]);
@@ -302,11 +537,16 @@ export default function RepoDetailPage() {
   const subscribeToJob = useCallback((id: string) => {
     if (unsubRef.current) unsubRef.current();
     const unsub = subscribeAnalyzeSSE(decoded, id, {
-      onInit: (data) => { if (data.startTime) startTimer(data.startTime); setJobStatus(data.status); if (data.progress.length > 0) setProgress(data.progress); },
+      onInit: (data) => {
+        if (data.startTime) startTimer(data.startTime);
+        setJobStatus(data.status);
+        if (data.progress.length > 0) setProgress(data.progress);
+        if (data.rawParams) setJobRawParams(data.rawParams);
+      },
       onStage: (stage) => { setProgress(prev => [...prev, stage]); if (stage.status === 'running') setJobStatus('running'); },
       onStatus: (data) => setJobStatus(data.status),
-      onComplete: (data) => { setJobStatus('completed'); setResult(data.result); stopTimer(data.durationMs); },
-      onError: (data) => { setJobStatus('error'); setError(data.error); stopTimer(data.durationMs); },
+      onComplete: (data) => { setJobStatus('completed'); setResult(data.result); stopTimer(data.durationMs); pollActiveJobs(); loadParams(); },
+      onError: (data) => { setJobStatus('error'); setError(data.error); stopTimer(data.durationMs); pollActiveJobs(); },
       onDisconnect: () => {
         if (id) fetchAnalyzeJob(decoded, id).then(s => {
           setJobStatus(s.status); setProgress(s.progress);
@@ -315,7 +555,7 @@ export default function RepoDetailPage() {
       },
     });
     unsubRef.current = unsub;
-  }, [decoded, stopTimer, startTimer]);
+  }, [decoded, stopTimer, startTimer, pollActiveJobs, loadParams]);
 
   const pendingInput = inputValue.trim();
   const hasAnyParam = rawParams.length > 0 || pendingInput.length > 0;
@@ -324,12 +564,13 @@ export default function RepoDetailPage() {
     let finalParams = [...rawParams];
     if (pendingInput && !finalParams.includes(pendingInput)) { finalParams.push(pendingInput); setRawParams(finalParams); setInputValue(''); }
     if (finalParams.length === 0) return;
-    setSubmitting(true); setError(null); setResult(null); setProgress([]); setJobStatus('queued'); setFinalDurationMs(null); setSkippedParams([]);
+    setSubmitting(true); setError(null); setResult(null); setProgress([]); setJobStatus('queued'); setFinalDurationMs(null); setSkippedParams([]); setJobRawParams(finalParams);
     try {
       const res = await createAnalyzeJob(decoded, { rawParams: finalParams });
       if (res.alreadyDone) { setJobStatus('completed'); setSkippedParams(finalParams); setSubmitting(false); loadParams(); return; }
       setJobId(res.jobId); if (res.skippedParams) setSkippedParams(res.skippedParams);
       startTimer(Date.now()); if (res.jobId) subscribeToJob(res.jobId);
+      pollActiveJobs();
     } catch (err) { setError(err instanceof Error ? err.message : '提交失败'); setJobStatus('error'); }
     finally { setSubmitting(false); }
   };
@@ -338,7 +579,7 @@ export default function RepoDetailPage() {
     if (unsubRef.current) unsubRef.current(); stopTimer();
     setJobId(null); setJobStatus('idle'); setProgress([]); setResult(null); setError(null);
     setElapsedMs(0); setFinalDurationMs(null); setRawParams([]); setInputValue('');
-    setShowForm(false); setSkippedParams([]); loadParams();
+    setShowForm(false); setSkippedParams([]); setJobRawParams([]); loadParams(); pollActiveJobs();
   };
 
   const isRunning = jobStatus === 'running' || jobStatus === 'queued';
@@ -351,6 +592,35 @@ export default function RepoDetailPage() {
   const completedCount = countCompletedStages(stageStatuses);
   const overallPercent = Math.round((completedCount / 5) * 100);
 
+  // Build analyzing param info (excluding current displayed job)
+  const analyzingParamJobMap = new Map<string, ActiveJobInfo>();
+  for (const aj of activeJobs) {
+    if (jobId && aj.id === jobId) continue;
+    for (const p of aj.rawParams) {
+      if (!analyzingParamJobMap.has(p)) analyzingParamJobMap.set(p, aj);
+    }
+  }
+
+  const existingParamNames = new Set(params.map(p => p.rawParam));
+  const pureAnalyzingEntries: Array<{ paramName: string; job: ActiveJobInfo }> = [];
+  for (const [paramName, aj] of analyzingParamJobMap) {
+    if (!existingParamNames.has(paramName)) {
+      pureAnalyzingEntries.push({ paramName, job: aj });
+    }
+  }
+
+  const handleClickActiveJob = (activeJobId: string) => {
+    navigate(`/repo/${encodeURIComponent(decoded)}?jobId=${encodeURIComponent(activeJobId)}`);
+    window.location.reload();
+  };
+
+  const handleParamClick = (rawParam: string) => {
+    navigate(`/repo/${encodeURIComponent(decoded)}/param/${encodeURIComponent(rawParam)}`);
+  };
+
+  // The params being analyzed in the current job (for display)
+  const currentJobParamNames = jobRawParams.length > 0 ? jobRawParams : rawParams;
+
   return (
     <Layout style={{ minHeight: '100vh', background: '#141414' }}>
       <Header style={{
@@ -358,7 +628,18 @@ export default function RepoDetailPage() {
         padding: '0 24px', borderBottom: '1px solid #303030',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ color: '#fff' }} />
+          {/* FIX #3: Back button goes to repo detail (reset), not repo list */}
+          <Button type="text" icon={<ArrowLeftOutlined />}
+            onClick={() => {
+              if (isAnalyzing) {
+                // When analyzing, back = return to this repo's param list
+                handleReset();
+              } else {
+                navigate('/');
+              }
+            }}
+            style={{ color: '#fff' }}
+          />
           <ApartmentOutlined style={{ fontSize: 24, color: '#1677ff' }} />
           <Title level={4} style={{ margin: 0, color: '#fff' }}>{decoded}</Title>
         </div>
@@ -370,12 +651,27 @@ export default function RepoDetailPage() {
       <Content style={{ padding: '24px 48px', maxWidth: 1000, margin: '0 auto', width: '100%' }}>
         <Breadcrumb style={{ marginBottom: 20 }} items={[
           { title: <a onClick={() => navigate('/')}><HomeOutlined /> 仓库列表</a> },
-          { title: decoded },
+          { title: isAnalyzing
+            ? <a onClick={handleReset} style={{ cursor: 'pointer' }}>{decoded}</a>
+            : decoded },
+          ...(isAnalyzing ? [{ title: '分析进度' }] : []),
         ]} />
 
         {/* ===== 分析中/完成 ===== */}
         {isAnalyzing && (
           <>
+            {/* FIX #1: Show which params are being analyzed */}
+            {isRunning && currentJobParamNames.length > 0 && (
+              <Card size="small" style={{ background: '#1f1f1f', borderColor: '#303030', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Text type="secondary" style={{ fontSize: 13 }}>正在分析的字段：</Text>
+                  {currentJobParamNames.map(p => (
+                    <Tag key={p} color="processing" style={{ fontSize: 13, padding: '2px 10px', margin: 0 }}>{p}</Tag>
+                  ))}
+                </div>
+              </Card>
+            )}
+
             {skippedParams.length > 0 && (
               <Alert type="info" showIcon message={`以下参数已有分析结果，已自动跳过: ${skippedParams.join(', ')}`} style={{ marginBottom: 16 }} />
             )}
@@ -425,6 +721,19 @@ export default function RepoDetailPage() {
               <Alert type="error" showIcon message="分析失败" description={error}
                 action={<Button onClick={handleReset} size="small">重试</Button>} style={{ marginBottom: 16 }} />
             )}
+
+            {/* FIX #2: Show existing params list below the analysis progress */}
+            <Divider style={{ borderColor: '#303030', margin: '24px 0' }} />
+            <ParamsListSection
+              params={params}
+              paramsLoading={paramsLoading}
+              paramsError={paramsError}
+              loadParams={loadParams}
+              pureAnalyzingEntries={pureAnalyzingEntries}
+              analyzingParamJobMap={analyzingParamJobMap}
+              onParamClick={handleParamClick}
+              onClickActiveJob={handleClickActiveJob}
+            />
           </>
         )}
 
@@ -459,28 +768,16 @@ export default function RepoDetailPage() {
               )}
             </Card>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <Title level={5} style={{ color: '#e6e6e6', margin: 0 }}><DatabaseOutlined style={{ marginRight: 8 }} />已分析参数</Title>
-              <Button type="text" icon={<ReloadOutlined />} onClick={loadParams} style={{ color: '#999' }}>刷新</Button>
-            </div>
-
-            {paramsLoading ? (
-              <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
-            ) : paramsError ? (
-              <Alert type="error" showIcon message="加载失败" description={paramsError}
-                action={<Button onClick={loadParams} size="small">重试</Button>} />
-            ) : params.length === 0 ? (
-              <Empty description={<Text type="secondary">暂无分析结果，点击上方「新分析」开始</Text>} style={{ padding: 60 }} />
-            ) : (
-              <Row gutter={[16, 16]}>
-                {params.map(param => (
-                  <Col xs={24} sm={12} lg={8} key={param.rawParam}>
-                    <ParamCard param={param}
-                      onClick={() => navigate(`/repo/${encodeURIComponent(decoded)}/param/${encodeURIComponent(param.rawParam)}`)} />
-                  </Col>
-                ))}
-              </Row>
-            )}
+            <ParamsListSection
+              params={params}
+              paramsLoading={paramsLoading}
+              paramsError={paramsError}
+              loadParams={loadParams}
+              pureAnalyzingEntries={pureAnalyzingEntries}
+              analyzingParamJobMap={analyzingParamJobMap}
+              onParamClick={handleParamClick}
+              onClickActiveJob={handleClickActiveJob}
+            />
           </>
         )}
       </Content>

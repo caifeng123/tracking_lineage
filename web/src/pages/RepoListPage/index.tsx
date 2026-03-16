@@ -444,7 +444,7 @@ export default function RepoListPage() {
             <GithubOutlined style={{ color: '#1677ff', marginRight: 8 }} />添加分析项目
           </Title>
           <div style={{ display: 'flex', gap: 12 }}>
-            <Input placeholder="输入 Git 仓库地址，如 https://github.com/user/repo"
+            <Input placeholder="输入 Git 仓库地址，如 https://code.byted.org/ecom/xxx"
               value={gitUrl} onChange={e => setGitUrl(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !cloning && gitUrl.trim()) handleClone(); }}
               prefix={<LinkOutlined style={{ color: '#666' }} />} disabled={cloning} size="large" style={{ flex: 1 }} />

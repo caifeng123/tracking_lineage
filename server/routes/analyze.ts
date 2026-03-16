@@ -419,7 +419,9 @@ export function createAnalyzeRoutes(defaultTargetDir?: string): Hono {
   });
 
   app.get('/', (c) => {
+    const resolvedTarget = defaultTargetDir ? resolve(defaultTargetDir) : null;
     const jobs = [...jobStore.values()]
+      .filter(job => !resolvedTarget || resolve(job.targetDir) === resolvedTarget)
       .sort((a, b) => b.startTime - a.startTime)
       .slice(0, 50)
       .map(job => ({

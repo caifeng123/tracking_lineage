@@ -316,6 +316,14 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
   const { absToRel, repoPrefix } = useMemo(() => buildPathMaps(root), [root]);
   const components = useMarkdownComponents(absToRel, repoPrefix, onNavigate);
 
+  // 将字面量 \n（LLM 输出或 JSON 序列化残留）替换为真正的换行符
+  const normalizedSummary = useMemo(() => {
+    if (!summary) return summary;
+    // 替换字面量 \n 为真正换行，但不影响已经是真正换行的部分
+    // 也不影响代码块中的 \n（\\n 是转义过的）
+    return summary.replace(/\\n/g, '\n');
+  }, [summary]);
+
   return (
     <div>
       <Descriptions size="small" column={1} labelStyle={{ color: '#888', fontSize: 12, width: 80 }} contentStyle={{ fontSize: 12 }}>
@@ -341,14 +349,14 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
 
       <Text strong style={{ fontSize: 13 }}>AI 分析报告</Text>
 
-      {summary ? (
+      {normalizedSummary ? (
         <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.7, color: '#ccc' }} className="report-markdown">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight]}
             components={components}
           >
-            {summary}
+            {normalizedSummary}
           </ReactMarkdown>
         </div>
       ) : (
