@@ -1,6 +1,6 @@
 export function buildProjectAnalyzePrompt(resultDir: string): string {
   return `## 任务
-分析当前代码仓库，输出技术栈和业务代码目录。
+分析当前业务代码仓库，输出技术栈和业务代码目录。
 
 ## 步骤
 1. 识别技术栈 — iOS / Android / FE
@@ -15,5 +15,5 @@ export function buildProjectAnalyzePrompt(resultDir: string): string {
 
 ## 注意
 - 仅列出业务代码相对路径
-- 排除工程配置、测试、构建产物`;
+- 排除工程配置、测试、构建产物`
 }

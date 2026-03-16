@@ -14,7 +14,6 @@ import type {
   DependencyRecord,
   AnalyzedParam,
   AnalyzedCall,
-  AnalyzedReferenceParam,
   LLMFunctionAnalysisResult,
 } from '../../types/index.js';
 import type { DependencyGraphResult } from '../types.js';
@@ -91,17 +90,17 @@ export class DependencyGraphStage {
       : buildFunctionAnalysisPrompt({ param, calls });
 
     const llmResponse = await this.llm.query(prompt, rawCode);
+    // const llmResponse = await this.llm.query(prompt, rawCode, { thinking: true });
     const parsed = this.parseSafe<LLMFunctionAnalysisResult>(llmResponse, {});
 
     const llmCalls = (parsed.calls ?? [])
       .map(({ function_name, params = [] }) => {
-        const filtered = params.filter((p) => p.use);
-        if (filtered.length === 0) return null;
-        return { function_name, params: filtered };
+        if (params.length === 0) return null;
+        return { function_name, params };
       })
       .filter(Boolean) as Array<{ function_name: string; params: AnalyzedParam[] }>;
 
-    const referenceParams = (parsed.reference_params ?? []).filter((p) => p.use);
+    const referenceParams = parsed.reference_params ?? []
 
     // 4. 收集依赖任务
     const dependentTasks: GraphTask[] = [];

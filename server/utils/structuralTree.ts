@@ -14,7 +14,7 @@ export interface DepRecord {
     absolutePath: string;
     startLine: number;
     endLine: number;
-    params: Array<{ name: string; index: number; reason: string; use: boolean }>;
+    params: Array<{ name: string; index: number; reason: string }>;
   }>;
 }
 

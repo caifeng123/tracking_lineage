@@ -31,7 +31,6 @@ export interface AnalyzedParam {
   name: string;
   index: number;
   reason: string;
-  use: boolean;
 }
 
 export interface AnalyzedCall {
@@ -42,16 +41,9 @@ export interface AnalyzedCall {
   params: AnalyzedParam[];
 }
 
-export interface AnalyzedReferenceParam {
-  name: string;
-  index: number;
-  reason: string;
-  use: boolean;
-}
-
 export interface LLMFunctionAnalysisResult {
   calls?: Array<{ function_name: string; params?: AnalyzedParam[] }>;
-  reference_params?: AnalyzedReferenceParam[];
+  reference_params?: AnalyzedParam[];
 }
 
 export interface DependencyRecord {
