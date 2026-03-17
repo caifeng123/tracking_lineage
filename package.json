@@ -1,6 +1,6 @@
 {
   "name": "tracking-lineage",
-  "version": "2.0.0",
+  "version": "0.0.1",
   "description": "代码参数血缘追踪工具 — 分析指定参数在代码仓库中的完整数据流向",
   "type": "module",
   "main": "dist/src/index.js",

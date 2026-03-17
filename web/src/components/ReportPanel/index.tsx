@@ -316,12 +316,50 @@ export default function ReportPanel({ summary, root, onNavigate }: ReportPanelPr
   const { absToRel, repoPrefix } = useMemo(() => buildPathMaps(root), [root]);
   const components = useMarkdownComponents(absToRel, repoPrefix, onNavigate);
 
-  // 将字面量 \n（LLM 输出或 JSON 序列化残留）替换为真正的换行符
+  // 预处理 summary：
+  // 1. 将字面量 \n 替换为真正的换行符
+  // 2. 在非代码块、非表格区域，将单个换行转为双换行，确保 Markdown 正确分段
   const normalizedSummary = useMemo(() => {
     if (!summary) return summary;
-    // 替换字面量 \n 为真正换行，但不影响已经是真正换行的部分
-    // 也不影响代码块中的 \n（\\n 是转义过的）
-    return summary.replace(/\\n/g, '\n');
+    // Step 1: 字面量 \n → 真实换行
+    let text = summary.replace(/\\n/g, '\n');
+
+    // Step 2: 拆分代码块（保持不变）
+    const parts = text.split(/(```[\s\S]*?```)/g);
+    const processed = parts.map((part, i) => {
+      // 奇数索引 = 代码块内容，保持不变
+      if (i % 2 === 1) return part;
+
+      // 非代码块区域：按行处理，识别表格行并保护
+      const lines = part.split('\n');
+      const result: string[] = [];
+      for (let j = 0; j < lines.length; j++) {
+        result.push(lines[j]);
+        if (j < lines.length - 1) {
+          const currLine = lines[j].trim();
+          const nextLine = lines[j + 1].trim();
+          // 判断是否在表格区域：当前行或下一行以 | 开头且以 | 结尾
+          const currIsTable = currLine.startsWith('|') && currLine.endsWith('|');
+          const nextIsTable = nextLine.startsWith('|') && nextLine.endsWith('|');
+          // 也检查分隔线 |---|---|
+          const currIsSep = /^\|[\s:|-]+\|$/.test(currLine);
+          const nextIsSep = /^\|[\s:|-]+\|$/.test(nextLine);
+
+          if ((currIsTable || currIsSep) && (nextIsTable || nextIsSep)) {
+            // 表格行之间：保持单换行
+            result.push('\n');
+          } else if (currLine === '' || nextLine === '') {
+            // 已有空行（双换行）：保持
+            result.push('\n');
+          } else {
+            // 普通文本行：单换行→双换行
+            result.push('\n\n');
+          }
+        }
+      }
+      return result.join('');
+    });
+    return processed.join('');
   }, [summary]);
 
   return (

@@ -1,10 +1,30 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import { Spin, Typography, Empty } from 'antd';
 import { FileTextOutlined } from '@ant-design/icons';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import Editor, { loader, type OnMount } from '@monaco-editor/react';
 import type { FileContent } from '../../types';
 
 const { Text } = Typography;
+
+// 配置 Monaco CDN 来源，确保可加载
+// 默认使用 jsdelivr CDN；如果公司内网不可达，可改为 unpkg 或本地路径
+loader.config({
+  paths: {
+    vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs',
+  },
+});
+
+// Monaco Editor 语言 ID 映射：将后端返回的语言名映射为 Monaco 可识别的 ID
+const MONACO_LANG_MAP: Record<string, string> = {
+  typescriptreact: 'typescript',
+  javascriptreact: 'javascript',
+  shell: 'shell',
+  plaintext: 'plaintext',
+};
+
+function toMonacoLanguage(lang: string): string {
+  return MONACO_LANG_MAP[lang] ?? lang;
+}
 
 interface CodeViewerProps {
   fileContent: FileContent | null;
@@ -15,6 +35,11 @@ interface CodeViewerProps {
 
 export default function CodeViewer({ fileContent, loading, highlightLine, selectedFile }: CodeViewerProps) {
   const editorRef = useRef<any>(null);
+
+  const monacoLanguage = useMemo(
+    () => fileContent ? toMonacoLanguage(fileContent.language) : 'plaintext',
+    [fileContent?.language],
+  );
 
   const handleEditorMount: OnMount = (editor) => {
     editorRef.current = editor;
@@ -68,7 +93,7 @@ export default function CodeViewer({ fileContent, loading, highlightLine, select
       <div style={{ flex: 1 }}>
         <Editor
           height="100%"
-          language={fileContent.language}
+          language={monacoLanguage}
           value={fileContent.content}
           theme="vs-dark"
           onMount={handleEditorMount}
