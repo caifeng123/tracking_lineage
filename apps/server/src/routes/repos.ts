@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { resolve, join, basename } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'fs';
 import { execSync, spawn } from 'child_process';
-import { findProjectRoot } from '../../src/utils/findRoot.js';
+import { findProjectRoot } from '@tracking-lineage/core';
 
 // ==================== Types ====================
 

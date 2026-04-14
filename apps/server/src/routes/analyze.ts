@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming';
 import { resolve, join } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { execSync } from 'child_process';
-import { findProjectRoot } from '../../src/utils/findRoot.js';
+import { findProjectRoot } from '@tracking-lineage/core';
 
 // ==================== Types ====================
 
@@ -133,9 +133,9 @@ async function runPipeline(job: AnalyzeJob): Promise<void> {
   notifyListeners(job.id, 'status', { status: 'running' });
 
   try {
-    const { ConfigManager } = await import('../../src/config.js');
-    const { FileResultStore } = await import('../../src/storage/index.js');
-    const { Pipeline } = await import('../../src/pipeline/index.js');
+    const { ConfigManager } = await import('@tracking-lineage/core');
+    const { FileResultStore } = await import('@tracking-lineage/core');
+    const { Pipeline } = await import('@tracking-lineage/core');
 
     const appConfig = ConfigManager.getAppConfig(job.rawParams, job.targetDir);
     appConfig.resultDir = job.resultDir;

@@ -1,10 +1,9 @@
 import { execSync } from 'child_process';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { resolve, join } from 'path';
 import { existsSync, readdirSync, statSync } from 'fs';
-import { findProjectRoot } from '../src/utils/findRoot.js';
+import { findProjectRoot } from '@tracking-lineage/core';
 import { ResultReader } from './services/resultReader.js';
 import { RepoReader } from './services/repoReader.js';
 import { createTreeRoutes } from './routes/trees.js';
@@ -124,7 +123,6 @@ export function listRepoSummaries(): RepoSummary[] {
 export function createApp() {
   const app = new Hono();
 
-  const publicDir = resolve(PROJECT_ROOT, 'server', 'public');
 
   // 中间件
   app.use('/api/*', cors());
@@ -255,8 +253,6 @@ export function createApp() {
   });
 
   // 静态文件 — 前端产物
-  app.use('/*', serveStatic({ root: publicDir }));
-  app.get('*', serveStatic({ root: publicDir, path: 'index.html' }));
 
   return app;
 }

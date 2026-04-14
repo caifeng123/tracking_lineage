@@ -1,8 +1,0 @@
-src/
-tests/
-tsconfig.json
-vitest.config.ts
-.env*
-.result/
-node_modules/
-.git/

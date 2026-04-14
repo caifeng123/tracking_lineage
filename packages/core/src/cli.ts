@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
+import { resolve } from 'path';
 import { execSync } from 'child_process';
 import { ConfigManager } from './config.js';
 import { FileResultStore } from './storage/index.js';
@@ -16,27 +15,18 @@ const TOOL_ROOT = findProjectRoot(import.meta.url);
 
 // ==================== 参数解析 ====================
 
-interface BaseArgs {
+interface CliArgs {
+  rawParams: string[];
   targetDir?: string;
   resultDir?: string;
   showHelp: boolean;
   showVersion: boolean;
-}
-
-interface AnalyzeArgs extends BaseArgs {
-  command: 'analyze';
-  rawParams: string[];
-  launchDashboard: boolean;
-  port: number;
-  noOpen: boolean;
   // 调试选项
   fromStage?: number;
   toStage?: number;
   onlyStage?: number;
   debug: boolean;
 }
-
-type CliArgs = AnalyzeArgs;
 
 function parseStageNumber(value: string): number | undefined {
   const n = parseInt(value, 10);
@@ -50,9 +40,6 @@ function parseArgs(argv: string[]): CliArgs {
   let resultDir: string | undefined;
   let showHelp = false;
   let showVersion = false;
-  let launchDashboard = false;
-  let port = 3000;
-  let noOpen = false;
   let fromStage: number | undefined;
   let toStage: number | undefined;
   let onlyStage: number | undefined;
@@ -60,16 +47,10 @@ function parseArgs(argv: string[]): CliArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--analyze' || arg === '-a') {
-      launchDashboard = true;
-    } else if ((arg === '--target' || arg === '-t') && argv[i + 1]) {
+    if ((arg === '--target' || arg === '-t') && argv[i + 1]) {
       targetDir = argv[++i];
     } else if ((arg === '--output' || arg === '-o') && argv[i + 1]) {
       resultDir = argv[++i];
-    } else if ((arg === '--port' || arg === '-p') && argv[i + 1]) {
-      port = parseInt(argv[++i], 10) || 3000;
-    } else if (arg === '--no-open') {
-      noOpen = true;
     } else if (arg === '--help' || arg === '-h') {
       showHelp = true;
     } else if (arg === '--version' || arg === '-V') {
@@ -87,7 +68,7 @@ function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  if (rawParams.length === 0 && !launchDashboard) {
+  if (rawParams.length === 0) {
     const envParams = process.env.RAW_PARAMS;
     if (envParams) {
       rawParams.push(...envParams.split(',').map((s) => s.trim()).filter(Boolean));
@@ -95,8 +76,8 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   return {
-    command: 'analyze', rawParams, targetDir, resultDir,
-    showHelp, showVersion, launchDashboard, port, noOpen,
+    rawParams, targetDir, resultDir,
+    showHelp, showVersion,
     fromStage, toStage, onlyStage, debug,
   };
 }
@@ -109,22 +90,13 @@ tracking-lineage v${VERSION}
 代码参数血缘追踪工具 — 分析指定参数在整个代码仓库中的数据流向
 
 用法:
-  tracking-lineage <param1> [param2] ... [options]   单次分析模式
-  tracking-lineage --analyze [options]                启动分析管理平台
+  tracking-lineage <param1> [param2] ... [options]
 
-模式:
-  <param>                  直接分析指定参数
-  --analyze, -a            启动 Web 管理平台（管理仓库、分析任务、查看结果）
-
-通用选项:
-  -t, --target <dir>       目标 git 仓库路径（默认当前目录，仅单次分析模式需要）
+选项:
+  -t, --target <dir>       目标 git 仓库路径（默认当前目录）
   -o, --output <dir>       结果输出目录（默认 <工具目录>/.results/<仓库名>）
   -h, --help               显示帮助信息
   -V, --version            显示版本号
-
-平台选项:
-  -p, --port <port>        服务端口（默认 3000）
-  --no-open                不自动打开浏览器
 
 调试选项:
   --from <N>               从第 N 个阶段开始运行（1-5），前序结果从磁盘恢复
@@ -146,24 +118,14 @@ tracking-lineage v${VERSION}
   AGENT_MODEL              Claude Agent 模型名
 
 示例:
-  # 完整分析
   tracking-lineage ecom_scene_id -t /path/to/repo
-
-  # 只运行 Stage 5（调用树语义分析），前序结果从磁盘恢复
   tracking-lineage ecom_scene_id -t /path/to/repo --only 5
-
-  # 从 Stage 3 开始运行到结束
   tracking-lineage ecom_scene_id -t /path/to/repo --from 3
-
-  # 只运行 Stage 2-3
   tracking-lineage ecom_scene_id -t /path/to/repo --from 2 --to 3
-
-  # 重跑 Stage 4（依赖图构建），带调试输出
   tracking-lineage ecom_scene_id -t /path/to/repo --only 4 --debug
 
-  # 启动管理平台
-  tracking-lineage --analyze
-  tracking-lineage --analyze -p 8080
+查看分析结果请启动 Dashboard 服务:
+  pnpm start    (在 monorepo 根目录)
 `);
 }
 
@@ -192,16 +154,15 @@ function validateGitRepo(dir: string): void {
   }
 }
 
-// ==================== 单次分析模式 ====================
+// ==================== 分析流程 ====================
 
-async function runAnalyze(args: AnalyzeArgs): Promise<void> {
+async function runAnalyze(args: CliArgs): Promise<void> {
   const targetDir = resolve(args.targetDir ?? process.env.TARGET_DIR ?? process.cwd());
   validateGitRepo(targetDir);
 
   const appConfig = ConfigManager.getAppConfig(args.rawParams, targetDir);
   appConfig.resultDir = resolveResultDir(targetDir, args.resultDir);
 
-  // 构建 PipelineOptions
   const pipelineOpts: PipelineOptions = {
     fromStage: args.fromStage,
     toStage: args.toStage,
@@ -244,21 +205,11 @@ async function runAnalyze(args: AnalyzeArgs): Promise<void> {
     if (ctx.stage3) console.log(`函数定位: ${stage3Count}`);
     if (ctx.stage5) console.log(`调用树数: ${stage5Count}`);
     console.log(`结果目录: ${appConfig.resultDir}`);
-    console.log(`\n查看结果: tracking-lineage --analyze`);
+    console.log(`\n查看结果: pnpm start（启动 Dashboard 服务）`);
   } catch (error) {
     console.error('Pipeline 执行失败:', error);
     process.exit(1);
   }
-}
-
-// ==================== Dashboard 模式 ====================
-
-async function runDashboard(args: AnalyzeArgs): Promise<void> {
-  const { startServer } = await import('../server/index.js');
-  startServer({
-    port: args.port,
-    open: !args.noOpen,
-  });
 }
 
 // ==================== 入口 ====================
@@ -271,19 +222,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.showHelp) {
+  if (args.showHelp || args.rawParams.length === 0) {
     printHelp();
-    process.exit(0);
+    process.exit(args.showHelp ? 0 : 1);
   }
 
-  if (args.launchDashboard) {
-    await runDashboard(args);
-  } else if (args.rawParams.length > 0) {
-    await runAnalyze(args);
-  } else {
-    printHelp();
-    process.exit(1);
-  }
+  await runAnalyze(args);
 }
 
 main();

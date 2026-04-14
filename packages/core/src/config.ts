@@ -1,16 +1,36 @@
 import dotenv from 'dotenv';
 import { existsSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
 import type { LLMConfig, ClaudeAgentConfig, AppConfig } from './types/index.js';
 import { findProjectRoot } from './utils/findRoot.js';
 
-// .env 查找优先级: 当前工作目录 > 工具安装目录 > 用户 home 目录
-const toolRoot = findProjectRoot(import.meta.url);
+// ==================== .env 查找 ====================
+
+/** 从给定目录向上查找 pnpm-workspace.yaml，定位 monorepo 根 */
+function findMonorepoRoot(startDir: string): string | null {
+  let dir = startDir;
+  while (dir !== dirname(dir)) {
+    if (existsSync(resolve(dir, 'pnpm-workspace.yaml'))) return dir;
+    dir = dirname(dir);
+  }
+  return null;
+}
+
+// .env 查找优先级:
+//   1. 当前工作目录（用户 cwd）
+//   2. monorepo 根目录（向上查找 pnpm-workspace.yaml）
+//   3. 包自身根目录（findProjectRoot 结果）
+//   4. 用户 home 目录
+const packageRoot = findProjectRoot(import.meta.url);
+const monorepoRoot = findMonorepoRoot(packageRoot);
+
 const candidates = [
   resolve(process.cwd(), '.env'),
-  resolve(toolRoot, '.env'),
+  monorepoRoot ? resolve(monorepoRoot, '.env') : null,
+  resolve(packageRoot, '.env'),
   resolve(process.env.HOME ?? '~', '.env.tracking-lineage'),
-];
+].filter(Boolean) as string[];
+
 const envFile = candidates.find((f) => existsSync(f));
 if (envFile) {
   dotenv.config({ path: envFile });
@@ -18,6 +38,8 @@ if (envFile) {
 } else {
   dotenv.config(); // fallback
 }
+
+// ==================== ConfigManager ====================
 
 export class ConfigManager {
   static getLLMConfig(): LLMConfig {

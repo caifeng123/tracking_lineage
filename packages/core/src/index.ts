@@ -1,5 +1,6 @@
 // Library entry — 导出所有模块供编程式调用
 export { Pipeline } from './pipeline/index.js';
+export type { PipelineOptions } from './pipeline/index.js';
 export { ConfigManager } from './config.js';
 export { FileResultStore } from './storage/index.js';
 export { LLMClient } from './llm/LLMClient.js';
@@ -9,6 +10,7 @@ export { GrepEngine } from './search/index.js';
 export { GitService } from './git/index.js';
 export { buildFunctionCallTrees } from './tree/index.js';
 export { ProjectManager, findMethodsByLines, analyzeFunction } from './ast/index.js';
+export { findProjectRoot } from './utils/findRoot.js';
 
 // Re-export types
 export type {

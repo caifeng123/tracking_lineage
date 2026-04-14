@@ -1,0 +1,39 @@
+{
+  "name": "@tracking-lineage/core",
+  "version": "0.0.1",
+  "description": "代码参数血缘追踪引擎 + CLI",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "tracking-lineage": "dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build":  "tsc",
+    "dev":    "tsc --watch",
+    "dev:cli": "tsx src/cli.ts",
+    "start":  "node dist/cli.js",
+    "test":   "vitest run",
+    "clean":  "rm -rf dist"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.23",
+    "dotenv": "^16.4.5",
+    "ignore": "^7.0.4",
+    "p-limit": "^7.2.0",
+    "ts-morph": "^27.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.1"
+  }
+}

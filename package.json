@@ -1,53 +1,28 @@
 {
-  "name": "tracking-lineage",
-  "version": "0.0.1",
-  "description": "代码参数血缘追踪工具 — 分析指定参数在代码仓库中的完整数据流向",
-  "type": "module",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
-  "bin": {
-    "tracking-lineage": "dist/src/cli.js"
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "name": "tracking-lineage-monorepo",
+  "private": true,
   "scripts": {
-    "build": "npm run build:cli && npm run build:web",
-    "build:cli": "tsc",
-    "build:web": "cd web && npm run build",
-    "start": "node dist/src/cli.js",
-    "dev": "tsx src/cli.ts",
-    "dev:web": "cd web && npm run dev",
-    "test": "vitest run",
-    "prepublishOnly": "npm run build"
-  },
-  "keywords": [
-    "lineage",
-    "parameter-tracking",
-    "code-analysis",
-    "ast",
-    "dependency-graph",
-    "typescript"
-  ],
-  "license": "MIT",
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.23",
-    "@hono/node-server": "^1.19.11",
-    "dotenv": "^16.4.5",
-    "hono": "^4.12.5",
-    "ignore": "^7.0.4",
-    "open": "^11.0.0",
-    "p-limit": "^7.2.0",
-    "ts-morph": "^27.0.2"
+    "build":          "pnpm -r build",
+    "build:core":     "pnpm --filter @tracking-lineage/core build",
+    "build:server":   "pnpm --filter @tracking-lineage/server build",
+    "build:web":      "pnpm --filter @tracking-lineage/web build",
+
+    "dev":            "pnpm --filter @tracking-lineage/server dev",
+    "dev:web":        "pnpm --filter @tracking-lineage/web dev",
+    "dev:cli":        "pnpm --filter @tracking-lineage/core dev:cli",
+
+    "start":          "pnpm --filter @tracking-lineage/server start",
+    "start:web":      "pnpm --filter @tracking-lineage/web start",
+
+    "test":           "pnpm --filter @tracking-lineage/core test",
+
+    "pack:web":       "bash scripts/build-web.sh",
+    "pack:server":    "bash scripts/build-server.sh"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.2.1"
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
