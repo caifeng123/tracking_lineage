@@ -10,5 +10,6 @@ if [ -n "${ENV_CONTENT:-}" ]; then
   echo "📝 .env injected from CI secrets"
 fi
 
+
 echo "🚀 Starting tracking-lineage on :$PORT ..."
 PORT="$PORT" node dist/index.js
